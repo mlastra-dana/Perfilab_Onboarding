@@ -11,6 +11,8 @@ type ProgressState = { processedRows: number; totalRows: number };
 export function ExcelPage({ companyId }: { companyId: string }) {
   const { state, setExcel } = useOnboarding();
   const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [progress, setProgress] = useState<ProgressState>({ processedRows: 0, totalRows: 0 });
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
 
@@ -45,6 +47,11 @@ export function ExcelPage({ companyId }: { companyId: string }) {
     }
 
     setSelectedFileName(file.name);
+    setUploading(true);
+    setUploadProgress(0);
+    await simulateUpload((value) => setUploadProgress(value));
+    setUploading(false);
+
     setLoading(true);
     setProgress({ processedRows: 0, totalRows: 0 });
     setExcel({
@@ -84,6 +91,8 @@ export function ExcelPage({ companyId }: { companyId: string }) {
 
   function handleClearExcel() {
     setSelectedFileName(null);
+    setUploading(false);
+    setUploadProgress(0);
     setLoading(false);
     setProgress({ processedRows: 0, totalRows: 0 });
     setExcel(createPendingExcelState());
@@ -109,7 +118,9 @@ export function ExcelPage({ companyId }: { companyId: string }) {
     <div className="space-y-6">
       <ExcelUploader
         excel={excelForUi}
-        loading={loading}
+        loading={loading || uploading}
+        isUploading={uploading}
+        uploadProgress={uploadProgress}
         selectedFileName={selectedFileName}
         onSelect={handleExcel}
         onClear={handleClearExcel}
@@ -131,4 +142,21 @@ export function ExcelPage({ companyId }: { companyId: string }) {
       </div>
     </div>
   );
+}
+
+async function simulateUpload(onProgress: (progress: number) => void) {
+  return new Promise<void>((resolve) => {
+    let value = 0;
+    onProgress(0);
+    const timer = setInterval(() => {
+      value += 12;
+      if (value >= 100) {
+        onProgress(100);
+        clearInterval(timer);
+        resolve();
+        return;
+      }
+      onProgress(value);
+    }, 35);
+  });
 }

@@ -1,5 +1,5 @@
 import { ChangeEvent, DragEvent, useRef, useState } from 'react';
-import { FileSpreadsheet } from 'lucide-react';
+import { FileSpreadsheet, Loader2 } from 'lucide-react';
 import { ExcelValidationState } from '../../app/types';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
@@ -10,12 +10,16 @@ import { FileAttachmentChip } from '../ui/FileAttachmentChip';
 export function ExcelUploader({
   excel,
   loading,
+  isUploading,
+  uploadProgress,
   selectedFileName,
   onSelect,
   onClear
 }: {
   excel: ExcelValidationState;
   loading: boolean;
+  isUploading: boolean;
+  uploadProgress: number;
   selectedFileName: string | null;
   onSelect: (file: File) => Promise<void>;
   onClear: () => void;
@@ -86,11 +90,24 @@ export function ExcelUploader({
         <FileAttachmentChip fileName={selectedFileName} status={excel.status} onRemove={handleRemoveClick} />
       ) : null}
 
-      {loading || excel.processedRows > 0 ? (
+      {loading ? (
+        <div className="space-y-2 rounded-lg border border-orange-200 bg-orange-50/60 p-3">
+          <div className="flex items-center gap-2 text-xs font-medium text-perfilabDark">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-perfilabOrange" />
+            {isUploading ? 'Subiendo Excel...' : 'Validando Excel...'}
+          </div>
+          <Progress value={uploadProgress} max={100} label={`Subida ${Math.round(uploadProgress)}%`} />
+          <Progress
+            value={excel.processedRows}
+            max={Math.max(excel.totalRows, 1)}
+            label={`Validación ${excel.processedRows}/${excel.totalRows || '?'} filas`}
+          />
+        </div>
+      ) : excel.processedRows > 0 ? (
         <Progress
           value={excel.processedRows}
           max={Math.max(excel.totalRows, 1)}
-          label={`Procesando fila ${excel.processedRows}/${excel.totalRows || '?'}`}
+          label={`Validación ${excel.processedRows}/${excel.totalRows || '?'} filas`}
         />
       ) : null}
 

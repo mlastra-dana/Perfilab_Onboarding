@@ -1,7 +1,8 @@
 import { Navigate, useLocation, useParams } from 'react-router-dom';
+import { useEffect, useRef } from 'react';
 import { AppLayout } from './AppLayout';
 import { getTenantByCompanyId } from '../data/tenants';
-import { OnboardingProvider } from './OnboardingContext';
+import { OnboardingProvider, useOnboarding } from './OnboardingContext';
 import { WelcomePage } from '../pages/WelcomePage';
 import { DocumentsPage } from '../pages/DocumentsPage';
 import { ExcelPage } from '../pages/ExcelPage';
@@ -71,19 +72,52 @@ export function OnboardingFlow() {
 
   return (
     <OnboardingProvider companyId={companyId} tenant={tenant}>
-      <AppLayout tenant={tenant} currentStep={step}>
-        {key === 'welcome' ? <WelcomePage tenant={tenant} companyId={companyId} /> : null}
-        {key === 'documents' ? <DocumentsPage companyId={companyId} /> : null}
-        {key === 'excel' ? <ExcelPage companyId={companyId} /> : null}
-        {key === 'review' ? <ReviewPage companyId={companyId} /> : null}
-        {key === 'success' ? <SuccessPage companyId={companyId} /> : null}
-        {key === 'notfound' ? (
-          <Card className="text-center">
-            <h1 className="text-xl font-bold text-slate-900">Paso no encontrado</h1>
-            <p className="mt-2 text-slate-600">La ruta no corresponde a un paso válido del onboarding.</p>
-          </Card>
-        ) : null}
-      </AppLayout>
+      <OnboardingContent tenant={tenant} companyId={companyId} step={step} stepKey={key} pathname={location.pathname} />
     </OnboardingProvider>
+  );
+}
+
+function OnboardingContent({
+  tenant,
+  companyId,
+  step,
+  stepKey,
+  pathname
+}: {
+  tenant: NonNullable<ReturnType<typeof getTenantByCompanyId>>;
+  companyId: string;
+  step: number;
+  stepKey: string;
+  pathname: string;
+}) {
+  const { resetOnboardingState } = useOnboarding();
+  const previousPathRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const previousPath = previousPathRef.current;
+    const isWelcomeRoute = stepKey === 'welcome';
+    const cameFromAnotherStep = Boolean(previousPath && previousPath !== pathname && !previousPath.endsWith(`/${companyId}`));
+
+    if (isWelcomeRoute && cameFromAnotherStep) {
+      resetOnboardingState();
+    }
+
+    previousPathRef.current = pathname;
+  }, [companyId, pathname, resetOnboardingState, stepKey]);
+
+  return (
+    <AppLayout tenant={tenant} currentStep={step}>
+      {stepKey === 'welcome' ? <WelcomePage tenant={tenant} companyId={companyId} /> : null}
+      {stepKey === 'documents' ? <DocumentsPage companyId={companyId} /> : null}
+      {stepKey === 'excel' ? <ExcelPage companyId={companyId} /> : null}
+      {stepKey === 'review' ? <ReviewPage companyId={companyId} /> : null}
+      {stepKey === 'success' ? <SuccessPage companyId={companyId} /> : null}
+      {stepKey === 'notfound' ? (
+        <Card className="text-center">
+          <h1 className="text-xl font-bold text-slate-900">Paso no encontrado</h1>
+          <p className="mt-2 text-slate-600">La ruta no corresponde a un paso válido del onboarding.</p>
+        </Card>
+      ) : null}
+    </AppLayout>
   );
 }

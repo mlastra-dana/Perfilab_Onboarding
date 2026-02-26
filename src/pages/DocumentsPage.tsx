@@ -15,44 +15,57 @@ export function DocumentsPage({ companyId }: { companyId: string }) {
     registroMercantil: false,
     cedulaRepresentante: false
   });
+  const [uploadingMap, setUploadingMap] = useState<Record<DocumentType, boolean>>({
+    rif: false,
+    registroMercantil: false,
+    cedulaRepresentante: false
+  });
+  const [uploadProgressMap, setUploadProgressMap] = useState<Record<DocumentType, number>>({
+    rif: 0,
+    registroMercantil: 0,
+    cedulaRepresentante: 0
+  });
+  const [validationProgressMap, setValidationProgressMap] = useState<Record<DocumentType, number>>({
+    rif: 0,
+    registroMercantil: 0,
+    cedulaRepresentante: 0
+  });
   const [runtimeFiles, setRuntimeFiles] = useState<Partial<Record<DocumentType, File>>>({});
 
   async function handleUpload(docType: DocumentType, file: File) {
+    setUploadingMap((prev) => ({ ...prev, [docType]: true }));
+    setUploadProgressMap((prev) => ({ ...prev, [docType]: 0 }));
+    setValidationProgressMap((prev) => ({ ...prev, [docType]: 0 }));
+
+    await simulateUpload((progress) => {
+      setUploadProgressMap((prev) => ({ ...prev, [docType]: progress }));
+    });
+
+    setUploadingMap((prev) => ({ ...prev, [docType]: false }));
     setLoadingMap((prev) => ({ ...prev, [docType]: true }));
-    try {
-      const previousPreview = state.documents[docType].previewUrl;
-      if (previousPreview) {
-        URL.revokeObjectURL(previousPreview);
-      }
 
-      const previewUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined;
-      const result = await validateDocumentFile(docType, file);
-
-      setDocument(docType, {
-        type: docType,
-        fileName: file.name,
-        fileSize: file.size,
-        fileType: file.type,
-        previewUrl,
-        validation: result
-      });
-
-      setRuntimeFiles((prev) => ({ ...prev, [docType]: file }));
-    } catch {
-      setDocument(docType, {
-        type: docType,
-        fileName: file.name,
-        fileSize: file.size,
-        fileType: file.type,
-        validation: {
-          status: 'error',
-          checks: [{ label: 'Lectura del documento', passed: false, details: 'No se pudo validar el archivo.' }],
-          error: 'No se pudo validar el archivo.'
-        }
-      });
-    } finally {
-      setLoadingMap((prev) => ({ ...prev, [docType]: false }));
+    const previousPreview = state.documents[docType].previewUrl;
+    if (previousPreview) {
+      URL.revokeObjectURL(previousPreview);
     }
+
+    const previewUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined;
+    setRuntimeFiles((prev) => ({ ...prev, [docType]: file }));
+
+    const result = await validateDocumentFile(docType, file, (progress) => {
+      setValidationProgressMap((prev) => ({ ...prev, [docType]: progress }));
+    });
+
+    setDocument(docType, {
+      type: docType,
+      fileName: file.name,
+      fileSize: file.size,
+      fileType: file.type,
+      previewUrl,
+      validation: result
+    });
+
+    setLoadingMap((prev) => ({ ...prev, [docType]: false }));
   }
 
   function handleRemove(docType: DocumentType) {
@@ -68,6 +81,9 @@ export function DocumentsPage({ companyId }: { companyId: string }) {
       return next;
     });
     setLoadingMap((prev) => ({ ...prev, [docType]: false }));
+    setUploadingMap((prev) => ({ ...prev, [docType]: false }));
+    setUploadProgressMap((prev) => ({ ...prev, [docType]: 0 }));
+    setValidationProgressMap((prev) => ({ ...prev, [docType]: 0 }));
   }
 
   return (
@@ -79,7 +95,10 @@ export function DocumentsPage({ companyId }: { companyId: string }) {
           <DocumentUploader
             key={docType}
             docRecord={state.documents[docType]}
-            loading={loadingMap[docType]}
+            loading={loadingMap[docType] || uploadingMap[docType]}
+            isUploading={uploadingMap[docType]}
+            uploadProgress={uploadProgressMap[docType]}
+            validationProgress={validationProgressMap[docType]}
             previewFile={runtimeFiles[docType]}
             onSelectFile={(file) => handleUpload(docType, file)}
             onRemoveFile={() => handleRemove(docType)}
@@ -97,4 +116,21 @@ export function DocumentsPage({ companyId }: { companyId: string }) {
       </div>
     </div>
   );
+}
+
+async function simulateUpload(onProgress: (progress: number) => void) {
+  return new Promise<void>((resolve) => {
+    let value = 0;
+    onProgress(0);
+    const timer = setInterval(() => {
+      value += 14;
+      if (value >= 100) {
+        onProgress(100);
+        clearInterval(timer);
+        resolve();
+        return;
+      }
+      onProgress(value);
+    }, 35);
+  });
 }

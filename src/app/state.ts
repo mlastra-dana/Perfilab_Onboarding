@@ -53,6 +53,11 @@ export function saveState(state: OnboardingState) {
   localStorage.setItem(key, JSON.stringify(state));
 }
 
+export function clearState(companyId: string) {
+  localStorage.removeItem(getStorageKey(companyId));
+  localStorage.removeItem(`onboarding-${companyId}`);
+}
+
 export function loadState(companyId: string): OnboardingState | null {
   const raw = localStorage.getItem(getStorageKey(companyId));
   if (!raw) return null;

@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { UploadCloud } from 'lucide-react';
+import { Loader2, UploadCloud } from 'lucide-react';
 import { DocumentRecord } from '../../app/types';
 import { DOCUMENT_LABELS } from '../../app/state';
 import { StatusBadge } from '../ui/Badge';
@@ -8,16 +8,23 @@ import { Card } from '../ui/Card';
 import { PdfPreview } from './PdfPreview';
 import { ValidationItem } from './ValidationItem';
 import { FileAttachmentChip } from '../ui/FileAttachmentChip';
+import { Progress } from '../ui/Progress';
 
 export function DocumentUploader({
   docRecord,
   loading,
+  isUploading,
+  uploadProgress,
+  validationProgress,
   previewFile,
   onSelectFile,
   onRemoveFile
 }: {
   docRecord: DocumentRecord;
   loading: boolean;
+  isUploading: boolean;
+  uploadProgress: number;
+  validationProgress: number;
   previewFile?: File;
   onSelectFile: (file: File) => Promise<void>;
   onRemoveFile: () => void;
@@ -43,6 +50,17 @@ export function DocumentUploader({
         <h3 className="text-lg font-semibold text-slate-900">{DOCUMENT_LABELS[docRecord.type]}</h3>
         <StatusBadge status={loading ? 'validating' : docRecord.validation.status} />
       </div>
+
+      {loading ? (
+        <div className="space-y-2 rounded-lg border border-orange-200 bg-orange-50/60 p-3">
+          <div className="flex items-center gap-2 text-xs font-medium text-perfilabDark">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-perfilabOrange" />
+            {isUploading ? 'Subiendo archivo...' : 'Validando documento...'}
+          </div>
+          <Progress value={uploadProgress} max={100} label={`Subida ${Math.round(uploadProgress)}%`} />
+          <Progress value={validationProgress} max={100} label={`Validación ${Math.round(validationProgress)}%`} />
+        </div>
+      ) : null}
 
       <div
         role="button"

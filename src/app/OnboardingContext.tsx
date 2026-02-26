@@ -1,7 +1,7 @@
 import { PropsWithChildren, createContext, useContext, useEffect, useMemo, useReducer } from 'react';
 import { TenantConfig } from '../data/tenants';
 import { DocumentRecord, DocumentType, ExcelValidationState, OnboardingState, SubmissionState } from './types';
-import { createInitialState, loadState, saveState } from './state';
+import { clearState, createInitialState, loadState, saveState } from './state';
 
 type Action =
   | { type: 'set_document'; payload: { docType: DocumentType; record: DocumentRecord } }
@@ -14,7 +14,7 @@ type ContextValue = {
   setDocument: (docType: DocumentType, record: DocumentRecord) => void;
   setExcel: (excel: ExcelValidationState) => void;
   setSubmission: (submission: SubmissionState) => void;
-  resetState: () => void;
+  resetOnboardingState: () => void;
   allDocumentsValid: boolean;
   excelValid: boolean;
   canSubmit: boolean;
@@ -66,7 +66,10 @@ export function OnboardingProvider({ companyId, tenant, children }: PropsWithChi
       setDocument: (docType, record) => dispatch({ type: 'set_document', payload: { docType, record } }),
       setExcel: (excel) => dispatch({ type: 'set_excel', payload: excel }),
       setSubmission: (submission) => dispatch({ type: 'set_submission', payload: submission }),
-      resetState: () => dispatch({ type: 'reset', payload: createInitialState(companyId, tenant) }),
+      resetOnboardingState: () => {
+        clearState(companyId);
+        dispatch({ type: 'reset', payload: createInitialState(companyId, tenant) });
+      },
       allDocumentsValid,
       excelValid,
       canSubmit: allDocumentsValid && excelValid
