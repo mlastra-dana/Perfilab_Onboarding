@@ -66,23 +66,30 @@ export async function copyEmailToClipboard(subject: string, body: string) {
 }
 
 export async function sendEmailViaApi(subject: string, body: string): Promise<SendEmailResult> {
-  const response = await fetch('/api/send-email', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ subject, body })
-  });
+  try {
+    const response = await fetch('/api/send-email', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ subject, body })
+    });
 
-  const data = (await response.json()) as SendEmailResult;
-  if (!response.ok || !data.ok) {
+    const data = (await response.json()) as SendEmailResult;
+    if (!response.ok || !data.ok) {
+      return {
+        ok: false,
+        error: data.error ?? 'No se pudo enviar el correo'
+      };
+    }
+
+    return data;
+  } catch {
     return {
       ok: false,
-      error: data.error ?? 'No se pudo enviar el correo'
+      error: 'No se pudo conectar con el servicio de envío.'
     };
   }
-
-  return data;
 }
 
 function statusLabel(status: string) {

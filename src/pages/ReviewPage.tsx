@@ -6,7 +6,7 @@ import { Button } from '../components/ui/Button';
 import { StatusBadge } from '../components/ui/Badge';
 import { DOCUMENT_LABELS } from '../app/state';
 import { Toast } from '../components/ui/Toast';
-import { buildDemoEmail, sendEmailViaApi } from '../lib/email/demoMail';
+import { buildDemoEmail, openMailto, sendEmailViaApi } from '../lib/email/demoMail';
 
 export function ReviewPage({ companyId }: { companyId: string }) {
   const { state, canSubmit, setSubmission } = useOnboarding();
@@ -21,8 +21,15 @@ export function ReviewPage({ companyId }: { companyId: string }) {
       const externalTrigger = new URLSearchParams(window.location.search).get('externalTrigger');
       const email = buildDemoEmail(state, companyId, externalTrigger);
       const sendResult = await sendEmailViaApi(email.subject, email.body);
+      const shouldFallbackToMailto =
+        !sendResult.ok &&
+        Boolean(sendResult.error) &&
+        (sendResult.error?.includes('Falta variable de entorno') ||
+          sendResult.error?.includes('No se pudo conectar con el servicio de envío.'));
 
-      if (!sendResult.ok) {
+      if (shouldFallbackToMailto) {
+        openMailto(email.subject, email.body);
+      } else if (!sendResult.ok) {
         setSubmission({ status: 'error', error: sendResult.error ?? 'No se pudo completar el envío.' });
         setErrorToast(sendResult.error ?? 'No se pudo completar el envío.');
         return;
@@ -34,14 +41,14 @@ export function ReviewPage({ companyId }: { companyId: string }) {
         submittedAt: email.submittedAtISO,
         emailSubject: email.subject,
         emailBody: email.body,
-        emailTo: sendResult.to
+        emailTo: sendResult.to ?? 'mlastra@danaconnect.com (mailto)'
       });
 
       const payload = {
         companyId,
         registrationId: email.trackingId,
         submittedAt: email.submittedAtISO,
-        to: sendResult.to,
+        to: sendResult.to ?? 'mlastra@danaconnect.com (mailto)',
         documents: state.documents,
         excel: {
           totalRows: state.excel.totalRows,
