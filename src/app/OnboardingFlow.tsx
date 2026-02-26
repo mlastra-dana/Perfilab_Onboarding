@@ -92,6 +92,14 @@ function OnboardingContent({
 }) {
   const { resetOnboardingState } = useOnboarding();
   const previousPathRef = useRef<string | null>(null);
+  const stepTitles: Record<string, string> = {
+    welcome: 'Perfilab | Inicio',
+    documents: 'Perfilab | Documentos',
+    excel: 'Perfilab | Excel',
+    review: 'Perfilab | Revisión',
+    success: 'Perfilab | Resultado',
+    notfound: 'Perfilab | No encontrado'
+  };
 
   useEffect(() => {
     const previousPath = previousPathRef.current;
@@ -104,6 +112,10 @@ function OnboardingContent({
 
     previousPathRef.current = pathname;
   }, [companyId, pathname, resetOnboardingState, stepKey]);
+
+  useEffect(() => {
+    document.title = stepTitles[stepKey] ?? 'Perfilab | Onboarding';
+  }, [stepKey]);
 
   return (
     <AppLayout tenant={tenant} currentStep={step}>
