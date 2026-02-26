@@ -1,0 +1,105 @@
+import { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { useOnboarding } from '../app/OnboardingContext';
+import { buildInvalidRowsCsv, parseExcelWithValidation } from '../lib/excel/excelParser';
+import { ExcelUploader } from '../components/onboarding/ExcelUploader';
+import { ValidationTable } from '../components/onboarding/ValidationTable';
+import { Button } from '../components/ui/Button';
+
+type ProgressState = { processedRows: number; totalRows: number };
+
+export function ExcelPage({ companyId }: { companyId: string }) {
+  const { state, setExcel } = useOnboarding();
+  const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState<ProgressState>({ processedRows: 0, totalRows: 0 });
+
+  async function handleExcel(file: File) {
+    if (!file.name.toLowerCase().endsWith('.xlsx')) {
+      setExcel({
+        ...state.excel,
+        status: 'error',
+        issues: [
+          {
+            rowNumber: 1,
+            reasons: ['Formato inválido. Solo se acepta .xlsx'],
+            rowData: {}
+          }
+        ]
+      });
+      return;
+    }
+
+    setLoading(true);
+    setProgress({ processedRows: 0, totalRows: 0 });
+    setExcel({
+      ...state.excel,
+      status: 'validating',
+      processedRows: 0,
+      totalRows: 0,
+      invalidRows: 0,
+      validRows: 0,
+      issues: [],
+      headers: [],
+      previewRows: []
+    });
+
+    try {
+      const result = await parseExcelWithValidation(file, (processedRows, totalRows) => {
+        setProgress({ processedRows, totalRows });
+      });
+      setExcel(result);
+      setProgress({ processedRows: result.processedRows, totalRows: result.totalRows });
+    } catch {
+      setExcel({
+        ...state.excel,
+        status: 'error',
+        issues: [
+          {
+            rowNumber: 1,
+            reasons: ['No se pudo procesar el Excel. Verifique estructura y codificación.'],
+            rowData: {}
+          }
+        ]
+      });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function downloadErrorsCsv() {
+    const csv = buildInvalidRowsCsv(state.excel.issues);
+    if (!csv) return;
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const anchor = window.document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'errores_validacion.csv';
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  const excelForUi = loading
+    ? { ...state.excel, status: 'validating' as const, processedRows: progress.processedRows, totalRows: progress.totalRows }
+    : state.excel;
+
+  return (
+    <div className="space-y-6">
+      <ExcelUploader excel={excelForUi} loading={loading} onSelect={handleExcel} />
+      <ValidationTable excel={state.excel} />
+
+      <div className="flex flex-wrap justify-between gap-3">
+        <Link to={`/onboarding/${companyId}/documents`}>
+          <Button variant="ghost">Volver</Button>
+        </Link>
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={downloadErrorsCsv} disabled={state.excel.issues.length === 0}>
+            Descargar CSV de errores
+          </Button>
+          <Link to={`/onboarding/${companyId}/review`}>
+            <Button disabled={state.excel.status !== 'valid'}>Continuar a revisión</Button>
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}

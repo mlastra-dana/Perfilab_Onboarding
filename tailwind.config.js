@@ -5,6 +5,7 @@ export default {
     extend: {
       colors: {
         perfilabOrange: '#F28C28',
+        perfilabOrangeDark: '#E57B12',
         perfilabDark: '#2F2F2F',
         perfilabGray: '#5B5B5B',
         perfilabGreen: '#25D366',
