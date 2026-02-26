@@ -11,33 +11,73 @@ export async function validateDocumentFile(
   file: File
 ): Promise<DocumentValidationResult> {
   const checks: DocumentValidationResult['checks'] = [];
-  const basic = validateBasicFile(file);
+  try {
+    const basic = validateBasicFile(file);
 
-  checks.push({
-    label: 'Formato permitido',
-    passed: basic.success,
-    details: basic.errors[0]
-  });
-
-  if (!basic.success) {
-    return {
-      status: 'error',
-      checks,
-      error: basic.errors.join(' ')
-    };
-  }
-
-  if (file.type.startsWith('image/')) {
-    const dim = await getImageDimensions(file);
-    const highQuality = Math.max(dim.width, dim.height) >= 1200;
     checks.push({
-      label: 'Calidad de imagen',
-      passed: highQuality,
-      severity: highQuality ? 'info' : 'warning',
-      details: highQuality
-        ? `${dim.width}x${dim.height} detectado.`
-        : `Calidad baja (${dim.width}x${dim.height}). Suba una imagen más nítida.`
+      label: 'Formato permitido',
+      passed: basic.success,
+      details: basic.errors[0]
     });
+
+    if (!basic.success) {
+      return {
+        status: 'error',
+        checks,
+        error: basic.errors.join(' ')
+      };
+    }
+
+    if (file.type.startsWith('image/')) {
+      const dim = await getImageDimensions(file);
+      const highQuality = Math.max(dim.width, dim.height) >= 1200;
+      checks.push({
+        label: 'Calidad de imagen',
+        passed: highQuality,
+        severity: highQuality ? 'info' : 'warning',
+        details: highQuality
+          ? `${dim.width}x${dim.height} detectado.`
+          : `Calidad baja (${dim.width}x${dim.height}). Suba una imagen más nítida.`
+      });
+
+      if (type !== 'cedulaRepresentante') {
+        return {
+          status: 'valid',
+          checks
+        };
+      }
+
+      const text = await extractTextWithOCR(URL.createObjectURL(file));
+      return buildCedulaValidationResult(text, checks);
+    }
+
+    const info = await getPdfInfo(file);
+    checks.push({
+      label: 'Documento PDF legible',
+      passed: info.pageCount > 0,
+      details: `${info.pageCount} página(s) detectada(s).`
+    });
+
+    let previewCanvas: HTMLCanvasElement | null = null;
+    try {
+      previewCanvas = await renderPdfPageToCanvas(file, 1);
+      const highQualityPdf = Math.max(previewCanvas.width, previewCanvas.height) >= 1200;
+      checks.push({
+        label: 'Calidad de escaneo PDF',
+        passed: highQualityPdf,
+        severity: highQualityPdf ? 'info' : 'warning',
+        details: highQualityPdf
+          ? `Resolución de vista previa ${previewCanvas.width}x${previewCanvas.height}.`
+          : 'PDF con baja resolución en primera página. Podría fallar OCR.'
+      });
+    } catch {
+      checks.push({
+        label: 'Calidad de escaneo PDF',
+        passed: true,
+        severity: 'warning',
+        details: 'No se pudo medir resolución del PDF. Validación parcial aplicada.'
+      });
+    }
 
     if (type !== 'cedulaRepresentante') {
       return {
@@ -46,42 +86,18 @@ export async function validateDocumentFile(
       };
     }
 
-    const text = await extractTextWithOCR(URL.createObjectURL(file));
-    return buildCedulaValidationResult(text, checks);
-  }
+    const pdfText = (await extractPdfText(file)).trim();
+    if (pdfText) {
+      return buildCedulaValidationResult(pdfText, checks);
+    }
 
-  const info = await getPdfInfo(file);
-  checks.push({
-    label: 'Documento PDF legible',
-    passed: info.pageCount > 0,
-    details: `${info.pageCount} página(s) detectada(s).`
-  });
+    if (previewCanvas) {
+      const ocrText = (await extractTextWithOCR(previewCanvas)).trim();
+      if (ocrText) {
+        return buildCedulaValidationResult(ocrText, checks);
+      }
+    }
 
-  const previewCanvas = await renderPdfPageToCanvas(file, 1);
-  const highQualityPdf = Math.max(previewCanvas.width, previewCanvas.height) >= 1200;
-  checks.push({
-    label: 'Calidad de escaneo PDF',
-    passed: highQualityPdf,
-    severity: highQualityPdf ? 'info' : 'warning',
-    details: highQualityPdf
-      ? `Resolución de vista previa ${previewCanvas.width}x${previewCanvas.height}.`
-      : 'PDF con baja resolución en primera página. Podría fallar OCR.'
-  });
-
-  if (type !== 'cedulaRepresentante') {
-    return {
-      status: 'valid',
-      checks
-    };
-  }
-
-  const pdfText = (await extractPdfText(file)).trim();
-  if (pdfText) {
-    return buildCedulaValidationResult(pdfText, checks);
-  }
-
-  const ocrText = (await extractTextWithOCR(previewCanvas)).trim();
-  if (!ocrText) {
     checks.push({
       label: 'OCR de cédula',
       passed: false,
@@ -95,9 +111,20 @@ export async function validateDocumentFile(
       isIdDocument: false,
       error: 'No se pudo validar automáticamente, por favor suba una imagen más nítida.'
     };
-  }
+  } catch {
+    checks.push({
+      label: 'Lectura del documento',
+      passed: false,
+      severity: 'error',
+      details: 'No se pudo validar el archivo. Intente cargarlo nuevamente.'
+    });
 
-  return buildCedulaValidationResult(ocrText, checks);
+    return {
+      status: 'error',
+      checks,
+      error: 'No se pudo validar el archivo. Intente cargarlo nuevamente.'
+    };
+  }
 }
 
 function buildCedulaValidationResult(
