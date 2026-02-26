@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
 import { ExcelValidationState } from '../../app/types';
-import { validateExcelRow } from '../validators/excelValidators';
+import { TEMPLATE_HEADERS, asString, buildHeaderMap, validateRow } from '../validators/excelValidators';
 
 type ProgressFn = (processed: number, total: number) => void;
 
@@ -11,31 +11,68 @@ export async function parseExcelWithValidation(
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: 'array' });
   const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, { defval: '' });
+  const matrix = XLSX.utils.sheet_to_json<unknown[]>(worksheet, { header: 1, defval: '' });
 
-  const headers = rows.length > 0 ? Object.keys(rows[0]) : [];
+  const headerRow = (matrix[0] ?? []) as unknown[];
+  const dataRows = matrix.slice(1) as unknown[][];
+
+  const headers = headerRow.map((h) => asString(h));
+  const headerInfo = buildHeaderMap(headerRow);
+
   const issues: ExcelValidationState['issues'] = [];
   const previewRows: Record<string, unknown>[] = [];
 
+  if (headerInfo.missing.length > 0) {
+    issues.push({
+      rowNumber: 1,
+      reasons: [`Faltan columnas requeridas: ${headerInfo.missing.join(', ')}`],
+      fieldErrors: headerInfo.missing.map((field) => ({ field, message: 'columna requerida no encontrada' })),
+      rowData: {}
+    });
+  }
+
+  if (!headerInfo.orderValid) {
+    issues.push({
+      rowNumber: 1,
+      reasons: ['No modifique el orden de las columnas del template.'],
+      fieldErrors: [{ field: 'HEADERS', message: 'orden de columnas inválido' }],
+      rowData: {}
+    });
+  }
+
+  const nonEmptyRows = dataRows
+    .map((rowArray, index) => ({ rowArray, rowNumber: index + 2 }))
+    .filter(({ rowArray }) => rowArray.some((cell) => asString(cell).length > 0));
+
   let processedRows = 0;
   let validRows = 0;
-  const totalRows = rows.length;
+  const totalRows = nonEmptyRows.length;
 
-  for (let index = 0; index < rows.length; index += 1) {
-    const row = rows[index];
-    const validation = validateExcelRow(row);
+  for (let index = 0; index < nonEmptyRows.length; index += 1) {
+    const { rowArray, rowNumber } = nonEmptyRows[index];
+    const rowObject: Record<string, unknown> = {};
+
+    headers.forEach((header, colIndex) => {
+      rowObject[header] = rowArray[colIndex] ?? '';
+    });
+
+    const validation = validateRow(rowObject, headerInfo.map, rowNumber);
 
     if (previewRows.length < 20) {
-      previewRows.push(row);
+      previewRows.push(rowObject);
     }
 
     if (validation.valid) {
       validRows += 1;
     } else {
+      const fieldErrors = validation.errors;
+      const reasons = fieldErrors.map((err) => `[${err.field}] ${err.message}`);
+
       issues.push({
-        rowNumber: index + 2,
-        reasons: validation.issues,
-        rowData: row
+        rowNumber,
+        reasons,
+        fieldErrors,
+        rowData: rowObject
       });
     }
 
@@ -50,12 +87,12 @@ export async function parseExcelWithValidation(
   const invalidRows = totalRows - validRows;
 
   return {
-    status: invalidRows === 0 && totalRows > 0 ? 'valid' : 'error',
+    status: invalidRows === 0 && totalRows > 0 && issues.length === 0 ? 'valid' : 'error',
     totalRows,
     processedRows,
     validRows,
     invalidRows,
-    headers,
+    headers: headers.length > 0 ? headers : [...TEMPLATE_HEADERS],
     previewRows,
     issues
   };

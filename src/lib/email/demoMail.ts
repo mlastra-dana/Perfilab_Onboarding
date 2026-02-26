@@ -7,6 +7,13 @@ export type DemoEmailPayload = {
   body: string;
 };
 
+export type SendEmailResult = {
+  ok: boolean;
+  to?: string;
+  messageId?: string;
+  error?: string;
+};
+
 export function buildDemoEmail(state: OnboardingState, companyId: string, externalTrigger?: string | null): DemoEmailPayload {
   const trackingId = crypto.randomUUID();
   const submittedAtISO = new Date().toISOString();
@@ -56,6 +63,26 @@ export function openMailto(subject: string, body: string) {
 export async function copyEmailToClipboard(subject: string, body: string) {
   const content = `Asunto:\n${subject}\n\nCuerpo:\n${body}`;
   await navigator.clipboard.writeText(content);
+}
+
+export async function sendEmailViaApi(subject: string, body: string): Promise<SendEmailResult> {
+  const response = await fetch('/api/send-email', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ subject, body })
+  });
+
+  const data = (await response.json()) as SendEmailResult;
+  if (!response.ok || !data.ok) {
+    return {
+      ok: false,
+      error: data.error ?? 'No se pudo enviar el correo'
+    };
+  }
+
+  return data;
 }
 
 function statusLabel(status: string) {

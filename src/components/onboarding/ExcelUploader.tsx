@@ -73,7 +73,7 @@ export function ExcelUploader({
           <div className="flex items-center gap-3">
             <FileSpreadsheet className="h-6 w-6 text-perfilabOrange" />
             <div>
-              <p className="text-sm font-medium text-perfilabDark">Seleccione archivo .xlsx</p>
+              <p className="text-sm font-medium text-perfilabDark">Seleccione archivo .xlsx o .csv</p>
               <p className="text-xs text-perfilabGray">Se procesa localmente en su navegador.</p>
             </div>
           </div>
@@ -83,7 +83,7 @@ export function ExcelUploader({
           </Button>
         </div>
 
-        <input ref={inputRef} type="file" accept=".xlsx" onChange={(e) => void handleInputChange(e)} className="hidden" />
+        <input ref={inputRef} type="file" accept=".xlsx,.csv" onChange={(e) => void handleInputChange(e)} className="hidden" />
       </div>
 
       {selectedFileName ? (

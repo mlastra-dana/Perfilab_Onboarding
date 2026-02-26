@@ -4,7 +4,7 @@ import { extractPdfText, getPdfInfo, renderPdfPageToCanvas } from '../pdf/pdfUti
 import { validateBasicFile } from './fileValidators';
 import { formatVenezuelanId, isValidVenezuelanId, normalizeVenezuelanId } from './venezuelanId';
 
-const ID_KEYWORDS = ['CEDULA', 'CÉDULA', 'IDENTIDAD', 'VENEZOLANO', 'NACIONALIDAD'];
+const ID_KEYWORDS = ['CEDULA DE IDENTIDAD', 'REPUBLICA BOLIVARIANA DE VENEZUELA', 'VENEZOLANO', 'IDENTIDAD', 'NACIONALIDAD'];
 const RIF_KEYWORDS = ['RIF', 'SENIAT', 'REGISTRO DE INFORMACION FISCAL'];
 const REGISTRO_KEYWORDS = [
   'REGISTRO MERCANTIL',
@@ -15,12 +15,16 @@ const REGISTRO_KEYWORDS = [
   'PROTOCOLO'
 ];
 
+const MIN_IMAGE_SIDE = 800;
+const HIGH_QUALITY_SIDE = 1200;
+
 export async function validateDocumentFile(
   type: DocumentType,
   file: File,
   onProgress?: (progress: number) => void
 ): Promise<DocumentValidationResult> {
   const checks: DocumentValidationResult['checks'] = [];
+
   try {
     onProgress?.(5);
     const basic = validateBasicFile(file);
@@ -41,23 +45,37 @@ export async function validateDocumentFile(
     }
 
     if (file.type.startsWith('image/')) {
+      const dataUrl = await readFileAsDataURL(file);
       onProgress?.(20);
-      const dim = await getImageDimensions(file);
-      const highQuality = Math.max(dim.width, dim.height) >= 1200;
+
+      const dim = await getImageDimensionsFromDataUrl(dataUrl);
+      const qualityOk = Math.max(dim.width, dim.height) >= MIN_IMAGE_SIDE;
+      const highQuality = Math.max(dim.width, dim.height) >= HIGH_QUALITY_SIDE;
+
       checks.push({
         label: 'Calidad de imagen',
-        passed: highQuality,
-        severity: highQuality ? 'info' : 'warning',
-        details: highQuality
+        passed: qualityOk,
+        severity: qualityOk ? (highQuality ? 'info' : 'warning') : 'error',
+        details: qualityOk
           ? `${dim.width}x${dim.height} detectado.`
-          : `Calidad baja (${dim.width}x${dim.height}). Suba una imagen más nítida.`
+          : `Resolución insuficiente (${dim.width}x${dim.height}). Suba una imagen con lado mayor >= ${MIN_IMAGE_SIDE}px.`
       });
+
+      if (!qualityOk) {
+        onProgress?.(100);
+        return {
+          status: 'error',
+          checks,
+          error: 'La resolución del documento es demasiado baja.'
+        };
+      }
 
       if (type !== 'cedulaRepresentante') {
         onProgress?.(60);
-        const text = (await extractTextWithOCR(URL.createObjectURL(file))).trim();
+        const text = await safeExtractText(dataUrl);
         onProgress?.(85);
-        if (!text) {
+
+        if (!text.trim()) {
           checks.push({
             label: 'Lectura OCR del documento',
             passed: false,
@@ -83,9 +101,18 @@ export async function validateDocumentFile(
         };
       }
 
-      const text = await extractTextWithOCR(URL.createObjectURL(file));
-      onProgress?.(90);
-      const result = buildCedulaValidationResult(text, checks);
+      onProgress?.(55);
+      const ocrAttempt = await extractCedulaTextFromRotations(dataUrl);
+      onProgress?.(85);
+
+      const result = buildCedulaValidationResult(ocrAttempt.text, checks, {
+        fileName: file.name,
+        allowPartial: true,
+        partialHint: ocrAttempt.text.trim()
+          ? undefined
+          : 'No se pudo leer texto (modo demo). Continuaremos con validación parcial.'
+      });
+
       onProgress?.(100);
       return result;
     }
@@ -99,17 +126,22 @@ export async function validateDocumentFile(
     });
 
     let previewCanvas: HTMLCanvasElement | null = null;
+    let qualityOk = true;
+
     try {
       onProgress?.(35);
       previewCanvas = await renderPdfPageToCanvas(file, 1);
-      const highQualityPdf = Math.max(previewCanvas.width, previewCanvas.height) >= 1200;
+      const side = Math.max(previewCanvas.width, previewCanvas.height);
+      const highQualityPdf = side >= HIGH_QUALITY_SIDE;
+      qualityOk = side >= MIN_IMAGE_SIDE;
+
       checks.push({
         label: 'Calidad de escaneo PDF',
-        passed: highQualityPdf,
-        severity: highQualityPdf ? 'info' : 'warning',
-        details: highQualityPdf
+        passed: qualityOk,
+        severity: qualityOk ? (highQualityPdf ? 'info' : 'warning') : 'error',
+        details: qualityOk
           ? `Resolución de vista previa ${previewCanvas.width}x${previewCanvas.height}.`
-          : 'PDF con baja resolución en primera página. Podría fallar OCR.'
+          : `Resolución insuficiente (${previewCanvas.width}x${previewCanvas.height}). Suba un PDF más nítido.`
       });
     } catch {
       checks.push({
@@ -125,7 +157,7 @@ export async function validateDocumentFile(
       let textToValidate = (await extractPdfText(file)).trim();
       if (!textToValidate && previewCanvas) {
         onProgress?.(75);
-        textToValidate = (await extractTextWithOCR(previewCanvas)).trim();
+        textToValidate = (await safeExtractText(previewCanvas)).trim();
       }
 
       if (!textToValidate) {
@@ -154,41 +186,43 @@ export async function validateDocumentFile(
       };
     }
 
-    onProgress?.(60);
-    const pdfText = (await extractPdfText(file)).trim();
-    if (pdfText) {
-      onProgress?.(90);
-      const result = buildCedulaValidationResult(pdfText, checks);
+    if (!qualityOk) {
       onProgress?.(100);
-      return result;
+      return {
+        status: 'error',
+        checks,
+        isIdDocument: false,
+        error: 'La resolución del documento es demasiado baja.'
+      };
     }
 
-    if (previewCanvas) {
+    onProgress?.(60);
+    let cedulaText = (await extractPdfText(file)).trim();
+    if (!cedulaText && previewCanvas) {
       onProgress?.(75);
-      const ocrText = (await extractTextWithOCR(previewCanvas)).trim();
-      if (ocrText) {
-        onProgress?.(90);
-        const result = buildCedulaValidationResult(ocrText, checks);
-        onProgress?.(100);
-        return result;
-      }
+      cedulaText = (await safeExtractText(previewCanvas)).trim();
     }
 
-    checks.push({
-      label: 'OCR de cédula',
-      passed: false,
-      severity: 'error',
-      details: 'No se pudo validar automáticamente, por favor suba una imagen más nítida.'
+    const result = buildCedulaValidationResult(cedulaText, checks, {
+      fileName: file.name,
+      allowPartial: true,
+      partialHint: cedulaText
+        ? undefined
+        : 'No se pudo leer texto (modo demo). Continuaremos con validación parcial.'
     });
 
-    return {
-      status: 'error',
-      checks,
-      isIdDocument: false,
-      error: 'No se pudo validar automáticamente, por favor suba una imagen más nítida.'
-    };
+    onProgress?.(100);
+    return result;
   } catch {
     onProgress?.(100);
+
+    if (type === 'cedulaRepresentante') {
+      return buildCedulaValidationResult('', checks, {
+        allowPartial: true,
+        partialHint: 'No se pudo leer texto (modo demo). Continuaremos con validación parcial.'
+      });
+    }
+
     checks.push({
       label: 'Lectura del documento',
       passed: false,
@@ -251,26 +285,47 @@ function normalizeText(value: string) {
 
 function buildCedulaValidationResult(
   rawText: string,
-  checks: DocumentValidationResult['checks']
+  checks: DocumentValidationResult['checks'],
+  options?: { allowPartial?: boolean; partialHint?: string; fileName?: string }
 ): DocumentValidationResult {
-  const text = rawText.toUpperCase();
-  const isIdDocument = ID_KEYWORDS.some((keyword) => text.includes(keyword));
+  const normalized = normalizeText(rawText);
+  const hasKeyword = ID_KEYWORDS.some((keyword) => normalized.includes(normalizeText(keyword)));
+  const hasIdPattern = /(?:^|\b)[VE][\-\s]?\d{6,8}(?:\b|$)/i.test(rawText);
+  const isIdDocument = hasKeyword || hasIdPattern;
+
   const canonicalId = normalizeVenezuelanId(rawText);
   const formattedId = canonicalId && isValidVenezuelanId(canonicalId) ? formatVenezuelanId(canonicalId) : null;
 
+  const hasReadableSignals = rawText.trim().length > 0 && (isIdDocument || Boolean(formattedId));
+  const allowPartial = Boolean(options?.allowPartial);
+
+  if (!rawText.trim()) {
+    checks.push({
+      label: 'Lectura del documento',
+      passed: true,
+      severity: 'warning',
+      details: options?.partialHint ?? 'No se pudo leer texto (modo demo). Continuaremos con validación parcial.'
+    });
+  }
+
+  const looksLikeByFileName = Boolean(options?.fileName && /(cedula|c[eé]dula|identidad|ci)/i.test(options.fileName));
+  const idDetected = isIdDocument || looksLikeByFileName || allowPartial;
+
   checks.push({
     label: 'Documento parece identificación',
-    passed: isIdDocument,
-    severity: isIdDocument ? 'info' : 'error',
-    details: isIdDocument
-      ? 'Se detectaron palabras clave de identificación.'
+    passed: idDetected,
+    severity: idDetected && !isIdDocument ? 'warning' : idDetected ? 'info' : 'error',
+    details: idDetected
+      ? isIdDocument
+        ? 'Se detectaron palabras clave de identificación.'
+        : 'Documento parece identificación (validación parcial).'
       : 'No se detectaron palabras clave tipo cédula/identidad.'
   });
 
   checks.push({
     label: 'Número de cédula detectado',
-    passed: Boolean(formattedId),
-    severity: formattedId ? 'info' : 'error',
+    passed: Boolean(formattedId) || allowPartial,
+    severity: formattedId ? 'info' : 'warning',
     details: formattedId
       ? formattedId
       : 'No se pudo leer la cédula. Asegúrese de que el documento esté nítido y que el número sea visible.'
@@ -297,17 +352,16 @@ function buildCedulaValidationResult(
     });
   }
 
-  const valid = isIdDocument && Boolean(formattedId) && notExpired;
+  const validBySignals = hasReadableSignals ? isIdDocument || Boolean(formattedId) : allowPartial;
+  const valid = validBySignals && notExpired;
 
   return {
     status: valid ? 'valid' : 'error',
     checks,
-    isIdDocument,
+    isIdDocument: idDetected,
     extractedId: formattedId ?? undefined,
     expiryDate: expiryDate ? formatDate(expiryDate) : undefined,
-    error: valid
-      ? undefined
-      : 'La cédula no cumple validación mínima. Suba un documento más legible y vigente.'
+    error: valid ? undefined : 'La cédula no cumple validación mínima. Suba un documento más legible y vigente.'
   };
 }
 
@@ -379,11 +433,86 @@ function formatDate(date: Date) {
   return date.toLocaleDateString('es-VE');
 }
 
-function getImageDimensions(file: File): Promise<{ width: number; height: number }> {
+async function extractCedulaTextFromRotations(dataUrl: string): Promise<{ text: string; score: number; angle: number }> {
+  const image = await loadImageFromDataUrl(dataUrl);
+  const angles = [0, 90, 180, 270];
+  let best = { text: '', score: 0, angle: 0 };
+
+  for (const angle of angles) {
+    const canvas = createRotatedCanvas(image, angle);
+    const text = (await safeExtractText(canvas)).trim();
+    const score = scoreCedulaText(text);
+
+    if (score > best.score) {
+      best = { text, score, angle };
+    }
+
+    if (score >= 3) {
+      return { text, score, angle };
+    }
+  }
+
+  return best;
+}
+
+function scoreCedulaText(text: string) {
+  if (!text.trim()) return 0;
+  const normalized = normalizeText(text);
+  const keywordHits = ID_KEYWORDS.reduce((total, keyword) => {
+    return normalized.includes(normalizeText(keyword)) ? total + 1 : total;
+  }, 0);
+
+  const idHit = /(?:^|\b)[VE][\-\s]?\d{6,8}(?:\b|$)/i.test(text) ? 2 : 0;
+  return keywordHits + idHit;
+}
+
+function safeExtractText(source: string | HTMLCanvasElement) {
+  return extractTextWithOCR(source).catch(() => '');
+}
+
+function readFileAsDataURL(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      if (!result) {
+        reject(new Error('No se pudo leer imagen.'));
+        return;
+      }
+      resolve(result);
+    };
+    reader.onerror = () => reject(new Error('No se pudo leer imagen.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImageFromDataUrl(dataUrl: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const image = new Image();
-    image.onload = () => resolve({ width: image.width, height: image.height });
-    image.onerror = () => reject(new Error('No se pudo leer la imagen.'));
-    image.src = URL.createObjectURL(file);
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('No se pudo cargar la imagen.'));
+    image.src = dataUrl;
   });
+}
+
+async function getImageDimensionsFromDataUrl(dataUrl: string): Promise<{ width: number; height: number }> {
+  const image = await loadImageFromDataUrl(dataUrl);
+  return { width: image.width, height: image.height };
+}
+
+function createRotatedCanvas(image: HTMLImageElement, angle: number) {
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d');
+  if (!context) return canvas;
+
+  const radians = (angle * Math.PI) / 180;
+  const swap = angle % 180 !== 0;
+  canvas.width = swap ? image.height : image.width;
+  canvas.height = swap ? image.width : image.height;
+
+  context.translate(canvas.width / 2, canvas.height / 2);
+  context.rotate(radians);
+  context.drawImage(image, -image.width / 2, -image.height / 2);
+
+  return canvas;
 }

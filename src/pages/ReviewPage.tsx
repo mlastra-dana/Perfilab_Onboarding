@@ -6,6 +6,7 @@ import { Button } from '../components/ui/Button';
 import { StatusBadge } from '../components/ui/Badge';
 import { DOCUMENT_LABELS } from '../app/state';
 import { Toast } from '../components/ui/Toast';
+import { buildDemoEmail, sendEmailViaApi } from '../lib/email/demoMail';
 
 export function ReviewPage({ companyId }: { companyId: string }) {
   const { state, canSubmit, setSubmission } = useOnboarding();
@@ -16,33 +17,45 @@ export function ReviewPage({ companyId }: { companyId: string }) {
     setErrorToast(null);
     setSubmission({ status: 'loading' });
 
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    try {
+      const externalTrigger = new URLSearchParams(window.location.search).get('externalTrigger');
+      const email = buildDemoEmail(state, companyId, externalTrigger);
+      const sendResult = await sendEmailViaApi(email.subject, email.body);
 
-    const failed = Math.random() < 0.2;
-    if (failed) {
+      if (!sendResult.ok) {
+        setSubmission({ status: 'error', error: sendResult.error ?? 'No se pudo completar el envío.' });
+        setErrorToast(sendResult.error ?? 'No se pudo completar el envío.');
+        return;
+      }
+
+      setSubmission({
+        status: 'success',
+        registrationId: email.trackingId,
+        submittedAt: email.submittedAtISO,
+        emailSubject: email.subject,
+        emailBody: email.body,
+        emailTo: sendResult.to
+      });
+
+      const payload = {
+        companyId,
+        registrationId: email.trackingId,
+        submittedAt: email.submittedAtISO,
+        to: sendResult.to,
+        documents: state.documents,
+        excel: {
+          totalRows: state.excel.totalRows,
+          validRows: state.excel.validRows,
+          invalidRows: state.excel.invalidRows
+        }
+      };
+
+      localStorage.setItem(`onboarding_submission:${companyId}:${email.trackingId}`, JSON.stringify(payload));
+      navigate(`/onboarding/${companyId}/success`);
+    } catch {
       setSubmission({ status: 'error', error: 'No se pudo completar el envío. Intente nuevamente.' });
       setErrorToast('No se pudo completar el envío. Intente nuevamente.');
-      return;
     }
-
-    const registrationId = `ONB-${Date.now().toString().slice(-8)}`;
-    const submittedAt = new Date().toISOString();
-    setSubmission({ status: 'success', registrationId, submittedAt });
-
-    const payload = {
-      companyId,
-      registrationId,
-      submittedAt,
-      documents: state.documents,
-      excel: {
-        totalRows: state.excel.totalRows,
-        validRows: state.excel.validRows,
-        invalidRows: state.excel.invalidRows
-      }
-    };
-
-    localStorage.setItem(`onboarding_submission:${companyId}:${registrationId}`, JSON.stringify(payload));
-    navigate(`/onboarding/${companyId}/success`);
   }
 
   return (

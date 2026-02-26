@@ -31,6 +31,7 @@ export type DocumentRecord = {
 export type ExcelRowIssue = {
   rowNumber: number;
   reasons: string[];
+  fieldErrors?: Array<{ field: string; message: string }>;
   rowData: Record<string, unknown>;
 };
 

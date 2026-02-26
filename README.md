@@ -27,6 +27,13 @@ npm install
 npm run dev
 ```
 
+Esto levanta:
+
+- Frontend Vite
+- API local de correo en `http://localhost:8787`
+
+Antes de ejecutar, cree `.env` basado en `.env.example` para configurar Cloud SMTP.
+
 3. Abrir:
 
 - `http://localhost:5173/onboarding/demo-001`

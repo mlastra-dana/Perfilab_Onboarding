@@ -30,7 +30,9 @@ export function ExcelPage({ companyId }: { companyId: string }) {
   }
 
   async function handleExcel(file: File) {
-    if (!file.name.toLowerCase().endsWith('.xlsx')) {
+    const lowerName = file.name.toLowerCase();
+    const isAccepted = lowerName.endsWith('.xlsx') || lowerName.endsWith('.csv');
+    if (!isAccepted) {
       setSelectedFileName(null);
       setExcel({
         ...state.excel,
@@ -38,7 +40,7 @@ export function ExcelPage({ companyId }: { companyId: string }) {
         issues: [
           {
             rowNumber: 1,
-            reasons: ['Formato inválido. Solo se acepta .xlsx'],
+            reasons: ['Formato inválido. Solo se acepta .xlsx o .csv'],
             rowData: {}
           }
         ]
