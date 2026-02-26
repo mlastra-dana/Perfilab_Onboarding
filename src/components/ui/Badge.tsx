@@ -9,7 +9,7 @@ const labelMap: Record<ValidationStatus, string> = {
 
 const colorMap: Record<ValidationStatus, string> = {
   pending: 'bg-slate-100 text-slate-700',
-  validating: 'bg-amber-100 text-amber-700',
+  validating: 'border border-orange-200 bg-orange-50 text-perfilabOrangeDark',
   valid: 'border border-orange-200 bg-orange-50 text-perfilabOrange',
   error: 'bg-red-100 text-red-700'
 };

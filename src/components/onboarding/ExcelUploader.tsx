@@ -1,47 +1,90 @@
-import { ChangeEvent } from 'react';
+import { ChangeEvent, DragEvent, useRef, useState } from 'react';
 import { FileSpreadsheet } from 'lucide-react';
 import { ExcelValidationState } from '../../app/types';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { Progress } from '../ui/Progress';
 import { StatusBadge } from '../ui/Badge';
+import { FileAttachmentChip } from '../ui/FileAttachmentChip';
 
 export function ExcelUploader({
   excel,
   loading,
-  onSelect
+  selectedFileName,
+  onSelect,
+  onClear
 }: {
   excel: ExcelValidationState;
   loading: boolean;
+  selectedFileName: string | null;
   onSelect: (file: File) => Promise<void>;
+  onClear: () => void;
 }) {
-  async function handleChange(event: ChangeEvent<HTMLInputElement>) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = useState(false);
+
+  async function processFile(file: File) {
+    await onSelect(file);
+    if (inputRef.current) inputRef.current.value = '';
+  }
+
+  async function handleInputChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
-    await onSelect(file);
-    event.target.value = '';
+    await processFile(file);
+  }
+
+  async function handleDrop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    setDragOver(false);
+    const file = event.dataTransfer.files?.[0];
+    if (!file) return;
+    await processFile(file);
+  }
+
+  function handleRemoveClick() {
+    if (inputRef.current) inputRef.current.value = '';
+    onClear();
   }
 
   return (
     <Card className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-slate-900">Carga de Excel masivo</h3>
+        <h3 className="text-lg font-semibold text-slate-900">Carga de Excel</h3>
         <StatusBadge status={loading ? 'validating' : excel.status} />
       </div>
 
-      <label className="flex cursor-pointer items-center justify-between rounded-xl border border-dashed border-brand-300 bg-brand-50 p-4">
-        <div className="flex items-center gap-3">
-          <FileSpreadsheet className="h-6 w-6 text-brand-700" />
-          <div>
-            <p className="text-sm font-medium text-brand-900">Seleccione archivo .xlsx</p>
-            <p className="text-xs text-brand-700">Se procesa localmente en su navegador.</p>
+      <div
+        className={`rounded-xl border border-dashed p-4 transition ${
+          dragOver ? 'border-perfilabOrange bg-orange-50' : 'border-orange-200 bg-orange-50/60'
+        }`}
+        onDragOver={(event) => {
+          event.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(event) => void handleDrop(event)}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <FileSpreadsheet className="h-6 w-6 text-perfilabOrange" />
+            <div>
+              <p className="text-sm font-medium text-perfilabDark">Seleccione archivo .xlsx</p>
+              <p className="text-xs text-perfilabGray">Se procesa localmente en su navegador.</p>
+            </div>
           </div>
+
+          <Button type="button" variant="secondary" onClick={() => inputRef.current?.click()}>
+            Buscar
+          </Button>
         </div>
-        <Button type="button" variant="secondary">
-          Buscar
-        </Button>
-        <input type="file" accept=".xlsx" onChange={(e) => void handleChange(e)} className="hidden" />
-      </label>
+
+        <input ref={inputRef} type="file" accept=".xlsx" onChange={(e) => void handleInputChange(e)} className="hidden" />
+      </div>
+
+      {selectedFileName ? (
+        <FileAttachmentChip fileName={selectedFileName} status={excel.status} onRemove={handleRemoveClick} />
+      ) : null}
 
       {loading || excel.processedRows > 0 ? (
         <Progress

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { UploadCloud } from 'lucide-react';
 import { DocumentRecord } from '../../app/types';
 import { DOCUMENT_LABELS } from '../../app/state';
@@ -7,24 +7,34 @@ import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { PdfPreview } from './PdfPreview';
 import { ValidationItem } from './ValidationItem';
+import { FileAttachmentChip } from '../ui/FileAttachmentChip';
 
 export function DocumentUploader({
   docRecord,
   loading,
   previewFile,
-  onSelectFile
+  onSelectFile,
+  onRemoveFile
 }: {
   docRecord: DocumentRecord;
   loading: boolean;
   previewFile?: File;
   onSelectFile: (file: File) => Promise<void>;
+  onRemoveFile: () => void;
 }) {
   const [dragOver, setDragOver] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   const fileAccept = useMemo(() => '.pdf,.png,.jpg,.jpeg,.webp', []);
 
   async function handleFiles(fileList: FileList | null) {
     if (!fileList || fileList.length === 0) return;
     await onSelectFile(fileList[0]);
+    if (inputRef.current) inputRef.current.value = '';
+  }
+
+  function handleRemoveClick() {
+    onRemoveFile();
+    if (inputRef.current) inputRef.current.value = '';
   }
 
   return (
@@ -56,16 +66,15 @@ export function DocumentUploader({
           <UploadCloud className="h-6 w-6 text-brand-600" />
           <p>Arrastre y suelte su archivo aquí o selecciónelo manualmente.</p>
           <input
+            ref={inputRef}
             type="file"
             accept={fileAccept}
             className="hidden"
-            id={`input-${docRecord.type}`}
             onChange={(event) => {
               void handleFiles(event.target.files);
-              event.currentTarget.value = '';
             }}
           />
-          <Button variant="secondary" onClick={() => window.document.getElementById(`input-${docRecord.type}`)?.click()}>
+          <Button type="button" variant="secondary" onClick={() => inputRef.current?.click()}>
             Seleccionar archivo
           </Button>
           <p className="text-xs text-slate-500">Solo PDF, JPG, PNG, WEBP. Máximo 10MB.</p>
@@ -74,17 +83,23 @@ export function DocumentUploader({
 
       {docRecord.fileName ? (
         <div className="rounded-xl border border-slate-200 p-3">
-          <p className="mb-2 text-sm font-medium text-slate-800">Archivo: {docRecord.fileName}</p>
+          <FileAttachmentChip fileName={docRecord.fileName} status={docRecord.validation.status} onRemove={handleRemoveClick} />
           {docRecord.fileType?.includes('pdf') ? (
             previewFile ? (
-              <PdfPreview file={previewFile} />
+              <div className="mt-3">
+                <PdfPreview file={previewFile} />
+              </div>
             ) : (
-              <p className="text-xs text-slate-500">Vista previa disponible tras volver a cargar el archivo.</p>
+              <p className="mt-3 text-xs text-slate-500">Vista previa disponible tras volver a cargar el archivo.</p>
             )
           ) : docRecord.previewUrl ? (
-            <img src={docRecord.previewUrl} alt={`Vista previa de ${DOCUMENT_LABELS[docRecord.type]}`} className="max-h-56 rounded-lg" />
+            <img
+              src={docRecord.previewUrl}
+              alt={`Vista previa de ${DOCUMENT_LABELS[docRecord.type]}`}
+              className="mt-3 max-h-56 rounded-lg"
+            />
           ) : (
-            <p className="text-xs text-slate-500">Vista previa no disponible.</p>
+            <p className="mt-3 text-xs text-slate-500">Vista previa no disponible.</p>
           )}
         </div>
       ) : null}

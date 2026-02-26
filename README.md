@@ -36,7 +36,7 @@ npm run dev
 
 1. Bienvenida (resolución por tenant registry)
 2. Documentos (RIF, Registro Mercantil, Cédula)
-3. Excel masivo (.xlsx)
+3. Excel (.xlsx)
 4. Revisión y envío
 
 Gating:

@@ -12,9 +12,24 @@ export function ExcelPage({ companyId }: { companyId: string }) {
   const { state, setExcel } = useOnboarding();
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<ProgressState>({ processedRows: 0, totalRows: 0 });
+  const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
+
+  function createPendingExcelState() {
+    return {
+      status: 'pending' as const,
+      totalRows: 0,
+      processedRows: 0,
+      validRows: 0,
+      invalidRows: 0,
+      headers: [],
+      previewRows: [],
+      issues: []
+    };
+  }
 
   async function handleExcel(file: File) {
     if (!file.name.toLowerCase().endsWith('.xlsx')) {
+      setSelectedFileName(null);
       setExcel({
         ...state.excel,
         status: 'error',
@@ -29,6 +44,7 @@ export function ExcelPage({ companyId }: { companyId: string }) {
       return;
     }
 
+    setSelectedFileName(file.name);
     setLoading(true);
     setProgress({ processedRows: 0, totalRows: 0 });
     setExcel({
@@ -66,6 +82,13 @@ export function ExcelPage({ companyId }: { companyId: string }) {
     }
   }
 
+  function handleClearExcel() {
+    setSelectedFileName(null);
+    setLoading(false);
+    setProgress({ processedRows: 0, totalRows: 0 });
+    setExcel(createPendingExcelState());
+  }
+
   function downloadErrorsCsv() {
     const csv = buildInvalidRowsCsv(state.excel.issues);
     if (!csv) return;
@@ -84,7 +107,13 @@ export function ExcelPage({ companyId }: { companyId: string }) {
 
   return (
     <div className="space-y-6">
-      <ExcelUploader excel={excelForUi} loading={loading} onSelect={handleExcel} />
+      <ExcelUploader
+        excel={excelForUi}
+        loading={loading}
+        selectedFileName={selectedFileName}
+        onSelect={handleExcel}
+        onClear={handleClearExcel}
+      />
       <ValidationTable excel={state.excel} />
 
       <div className="flex flex-wrap justify-between gap-3">
