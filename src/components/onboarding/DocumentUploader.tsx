@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { Loader2, UploadCloud } from 'lucide-react';
-import { DocumentRecord } from '../../app/types';
+import { DocumentCheck, DocumentRecord } from '../../app/types';
 import { DOCUMENT_LABELS } from '../../app/state';
 import { StatusBadge } from '../ui/Badge';
 import { Button } from '../ui/Button';
@@ -32,6 +32,10 @@ export function DocumentUploader({
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileAccept = useMemo(() => '.pdf,.png,.jpg,.jpeg,.webp', []);
+  const compactChecks = useMemo(() => buildCompactChecks(docRecord.validation.status, docRecord.validation.checks), [
+    docRecord.validation.status,
+    docRecord.validation.checks
+  ]);
 
   async function handleFiles(fileList: FileList | null) {
     if (!fileList || fileList.length === 0) return;
@@ -126,9 +130,8 @@ export function DocumentUploader({
         {docRecord.validation.checks.length === 0 ? (
           <li className="text-slate-500">Aún no hay validaciones ejecutadas.</li>
         ) : (
-          docRecord.validation.checks.map((check, idx) => {
-            const status = check.passed ? (check.severity === 'warning' ? 'warn' : 'pass') : 'fail';
-            return <ValidationItem key={`${check.label}-${idx}`} status={status} label={check.label} detail={check.details} />;
+          compactChecks.map((check, idx) => {
+            return <ValidationItem key={`${check.label}-${idx}`} status={check.status} label={check.label} detail={check.detail} />;
           })
         )}
       </ul>
@@ -138,4 +141,42 @@ export function DocumentUploader({
       ) : null}
     </Card>
   );
+}
+
+function buildCompactChecks(
+  validationStatus: DocumentRecord['validation']['status'],
+  checks: DocumentCheck[]
+): Array<{ status: 'pass' | 'fail' | 'warn'; label: string; detail?: string }> {
+  if (!checks.length) return [];
+
+  const failed = checks.find((check) => !check.passed);
+  const partial = checks.find((check) => check.passed && check.severity === 'warning' && /parcial/i.test(check.details ?? check.label));
+
+  if (validationStatus === 'error') {
+    const reason = failed ?? checks[0];
+    return [
+      {
+        status: 'fail',
+        label: 'Motivo del fallo',
+        detail: reason.details ?? reason.label
+      }
+    ];
+  }
+
+  if (validationStatus === 'valid') {
+    return [
+      { status: 'pass', label: 'Validación completada', detail: 'Documento aceptado.' },
+      ...(partial
+        ? [
+            {
+              status: 'warn' as const,
+              label: 'Aceptado en modo demo',
+              detail: 'No se pudo leer todo el texto por OCR, pero el documento fue aceptado y puede continuar.'
+            }
+          ]
+        : [])
+    ];
+  }
+
+  return [];
 }

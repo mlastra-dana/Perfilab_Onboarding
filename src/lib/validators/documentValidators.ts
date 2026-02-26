@@ -72,10 +72,10 @@ export async function validateDocumentFile(
 
       if (type !== 'cedulaRepresentante') {
         onProgress?.(60);
-        const text = await safeExtractText(dataUrl);
+        const text = (await extractTextWithOCR(dataUrl)).trim();
         onProgress?.(85);
 
-        if (!text.trim()) {
+        if (!text) {
           checks.push({
             label: 'Lectura OCR del documento',
             passed: false,
@@ -157,7 +157,7 @@ export async function validateDocumentFile(
       let textToValidate = (await extractPdfText(file)).trim();
       if (!textToValidate && previewCanvas) {
         onProgress?.(75);
-        textToValidate = (await safeExtractText(previewCanvas)).trim();
+        textToValidate = (await extractTextWithOCR(previewCanvas)).trim();
       }
 
       if (!textToValidate) {
@@ -200,7 +200,7 @@ export async function validateDocumentFile(
     let cedulaText = (await extractPdfText(file)).trim();
     if (!cedulaText && previewCanvas) {
       onProgress?.(75);
-      cedulaText = (await safeExtractText(previewCanvas)).trim();
+      cedulaText = (await safeExtractText(previewCanvas, 12000)).trim();
     }
 
     const result = buildCedulaValidationResult(cedulaText, checks, {
@@ -435,12 +435,12 @@ function formatDate(date: Date) {
 
 async function extractCedulaTextFromRotations(dataUrl: string): Promise<{ text: string; score: number; angle: number }> {
   const image = await loadImageFromDataUrl(dataUrl);
-  const angles = [0, 90, 180, 270];
+  const angles = image.width >= image.height ? [0, 90, 270] : [90, 0, 180];
   let best = { text: '', score: 0, angle: 0 };
 
   for (const angle of angles) {
     const canvas = createRotatedCanvas(image, angle);
-    const text = (await safeExtractText(canvas)).trim();
+    const text = (await safeExtractText(canvas, 7000)).trim();
     const score = scoreCedulaText(text);
 
     if (score > best.score) {
@@ -466,8 +466,13 @@ function scoreCedulaText(text: string) {
   return keywordHits + idHit;
 }
 
-function safeExtractText(source: string | HTMLCanvasElement) {
-  return extractTextWithOCR(source).catch(() => '');
+function safeExtractText(source: string | HTMLCanvasElement, timeoutMs = 12000) {
+  const preparedSource = source instanceof HTMLCanvasElement ? prepareCanvasForOcr(source) : source;
+  const ocrPromise = extractTextWithOCR(preparedSource).catch(() => '');
+  const timeoutPromise = new Promise<string>((resolve) => {
+    window.setTimeout(() => resolve(''), timeoutMs);
+  });
+  return Promise.race([ocrPromise, timeoutPromise]);
 }
 
 function readFileAsDataURL(file: File): Promise<string> {
@@ -515,4 +520,19 @@ function createRotatedCanvas(image: HTMLImageElement, angle: number) {
   context.drawImage(image, -image.width / 2, -image.height / 2);
 
   return canvas;
+}
+
+function prepareCanvasForOcr(canvas: HTMLCanvasElement) {
+  const maxSide = 1400;
+  const side = Math.max(canvas.width, canvas.height);
+  if (side <= maxSide) return canvas;
+
+  const scale = maxSide / side;
+  const resized = document.createElement('canvas');
+  resized.width = Math.round(canvas.width * scale);
+  resized.height = Math.round(canvas.height * scale);
+  const ctx = resized.getContext('2d');
+  if (!ctx) return canvas;
+  ctx.drawImage(canvas, 0, 0, resized.width, resized.height);
+  return resized;
 }
