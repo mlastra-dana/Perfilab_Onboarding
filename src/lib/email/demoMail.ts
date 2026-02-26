@@ -1,0 +1,72 @@
+import { OnboardingState } from '../../app/types';
+
+export type DemoEmailPayload = {
+  trackingId: string;
+  submittedAtISO: string;
+  subject: string;
+  body: string;
+};
+
+export function buildDemoEmail(state: OnboardingState, companyId: string, externalTrigger?: string | null): DemoEmailPayload {
+  const trackingId = crypto.randomUUID();
+  const submittedAtISO = new Date().toISOString();
+  const portalLink = `${window.location.origin}/onboarding/${companyId}${
+    externalTrigger ? `?externalTrigger=${encodeURIComponent(externalTrigger)}` : ''
+  }`;
+
+  const companyName = state.tenant.name;
+
+  const subject = `Perfilab | Onboarding recibido | ${companyName} | ${trackingId}`;
+  const body = [
+    'Hola,',
+    '',
+    'Se recibió documentación validada desde el Portal de Onboarding Perfilab.',
+    '',
+    `Empresa: ${companyName} (ID: ${companyId})`,
+    `Tracking ID: ${trackingId}`,
+    `Fecha: ${submittedAtISO}`,
+    `Link del portal: ${portalLink}`,
+    '',
+    'Resumen de validación:',
+    `- RIF: ${statusLabel(state.documents.rif.validation.status)} | Archivo: ${state.documents.rif.fileName ?? 'N/A'}`,
+    `- Registro Mercantil: ${statusLabel(state.documents.registroMercantil.validation.status)} | Archivo: ${
+      state.documents.registroMercantil.fileName ?? 'N/A'
+    }`,
+    `- Cédula Representante: ${statusLabel(state.documents.cedulaRepresentante.validation.status)} | Archivo: ${
+      state.documents.cedulaRepresentante.fileName ?? 'N/A'
+    } | Cédula detectada: ${maskDetectedId(state.documents.cedulaRepresentante.validation.extractedId)}`,
+    `- Archivo de datos: ${statusLabel(state.excel.status)} | Archivo: N/A | Filas: ${state.excel.totalRows} | Válidas: ${
+      state.excel.validRows
+    } | Inválidas: ${state.excel.invalidRows}`,
+    '',
+    'Nota (modo demo):',
+    'Los archivos fueron validados localmente en el navegador y no se adjuntan automáticamente.',
+    '',
+    'Gracias.'
+  ].join('\n');
+
+  return { trackingId, submittedAtISO, subject, body };
+}
+
+export function openMailto(subject: string, body: string) {
+  const mailto = `mailto:mlastra@danaconnect.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  window.location.href = mailto;
+}
+
+export async function copyEmailToClipboard(subject: string, body: string) {
+  const content = `Asunto:\n${subject}\n\nCuerpo:\n${body}`;
+  await navigator.clipboard.writeText(content);
+}
+
+function statusLabel(status: string) {
+  if (status === 'valid') return 'Válido';
+  if (status === 'error') return 'Error';
+  if (status === 'validating') return 'Validando';
+  return 'Pendiente';
+}
+
+function maskDetectedId(value?: string) {
+  if (!value) return 'N/A';
+  if (value.length < 4) return '***';
+  return `${value.slice(0, 2)}***${value.slice(-3)}`;
+}

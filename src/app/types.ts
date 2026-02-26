@@ -50,6 +50,9 @@ export type SubmissionState = {
   registrationId?: string;
   error?: string;
   submittedAt?: string;
+  emailSubject?: string;
+  emailBody?: string;
+  emailTo?: string;
 };
 
 export type OnboardingState = {
