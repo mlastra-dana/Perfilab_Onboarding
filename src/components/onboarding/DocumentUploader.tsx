@@ -32,10 +32,10 @@ export function DocumentUploader({
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileAccept = useMemo(() => '.pdf,.png,.jpg,.jpeg,.webp', []);
-  const compactChecks = useMemo(() => buildCompactChecks(docRecord.validation.status, docRecord.validation.checks), [
-    docRecord.validation.status,
-    docRecord.validation.checks
-  ]);
+  const compactChecks = useMemo(
+    () => buildCompactChecks(docRecord.type, docRecord.validation.status, docRecord.validation.checks),
+    [docRecord.type, docRecord.validation.status, docRecord.validation.checks]
+  );
 
   async function handleFiles(fileList: FileList | null) {
     if (!fileList || fileList.length === 0) return;
@@ -144,6 +144,7 @@ export function DocumentUploader({
 }
 
 function buildCompactChecks(
+  docType: DocumentRecord['type'],
   validationStatus: DocumentRecord['validation']['status'],
   checks: DocumentCheck[]
 ): Array<{ status: 'pass' | 'fail' | 'warn'; label: string; detail?: string }> {
@@ -154,16 +155,24 @@ function buildCompactChecks(
 
   if (validationStatus === 'error') {
     const reason = failed ?? checks[0];
+    const detail =
+      docType === 'cedulaRepresentante'
+        ? mapCedulaFailReason(reason)
+        : reason.details ?? reason.label;
     return [
       {
         status: 'fail',
         label: 'Motivo del fallo',
-        detail: reason.details ?? reason.label
+        detail
       }
     ];
   }
 
   if (validationStatus === 'valid') {
+    if (docType === 'cedulaRepresentante') {
+      return [{ status: 'pass', label: 'Cédula validada', detail: 'Documento de identidad vigente.' }];
+    }
+
     return [
       { status: 'pass', label: 'Validación completada', detail: 'Documento aceptado.' },
       ...(partial
@@ -179,4 +188,20 @@ function buildCompactChecks(
   }
 
   return [];
+}
+
+function mapCedulaFailReason(reason: DocumentCheck) {
+  if (/VIGENCIA/i.test(reason.label)) {
+    return 'No se pudo validar vigencia de la cédula. Verifique que la fecha de vencimiento sea legible.';
+  }
+
+  if (/IDENTIFICACION/i.test(reason.label)) {
+    return 'El archivo no parece una cédula de identidad.';
+  }
+
+  if (/NUMERO DE CEDULA/i.test(reason.label)) {
+    return 'No se pudo leer el número de cédula.';
+  }
+
+  return 'No se pudo validar la cédula de identidad.';
 }

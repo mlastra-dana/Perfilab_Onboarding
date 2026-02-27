@@ -344,11 +344,12 @@ function buildCedulaValidationResult(
       details: `Fecha detectada: ${formatDate(expiryDate)}.`
     });
   } else {
+    notExpired = false;
     checks.push({
       label: 'Vigencia de documento',
-      passed: true,
-      severity: 'warning',
-      details: 'No se detectó fecha de vencimiento. Validación parcial.'
+      passed: false,
+      severity: 'error',
+      details: 'No se pudo confirmar la fecha de vencimiento.'
     });
   }
 
@@ -371,20 +372,27 @@ function extractPossibleExpiryDate(text: string) {
     .replace(/[\u0300-\u036f]/g, '')
     .toUpperCase();
 
-  const keywordRegex = /(VENC|VENCIMIENTO|EXPIRA|EXPIRACION|CADUCA|HASTA)/g;
+  const keywordRegex = /(F\.?\s*VENCIMIENTO|VENCIMIENTO|VENC|EXPIRA|EXPIRACION|CADUCA|HASTA)/g;
+  const birthLikeRegex = /(F\.?\s*NACIMIENTO|NACIMIENTO|NACIM|EXPEDICION|F\.?\s*EXPEDICION|EMISION)/g;
   const keywordPositions: number[] = [];
+  const birthPositions: number[] = [];
   let keywordMatch: RegExpExecArray | null = keywordRegex.exec(normalizedText);
   while (keywordMatch) {
     keywordPositions.push(keywordMatch.index);
     keywordMatch = keywordRegex.exec(normalizedText);
   }
+  let birthMatch: RegExpExecArray | null = birthLikeRegex.exec(normalizedText);
+  while (birthMatch) {
+    birthPositions.push(birthMatch.index);
+    birthMatch = birthLikeRegex.exec(normalizedText);
+  }
 
-  const dateRegex = /(\d{2}[\/\-\.]\d{2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{2}[\/\-\.]\d{2})/g;
+  const dateRegex = /(\d{2}[\/\-\.]\d{2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{2}[\/\-\.]\d{2}|\d{1,2}[\/\-\.]\d{4})/g;
   const candidates: Array<{ date: Date; index: number }> = [];
   let dateMatch: RegExpExecArray | null = dateRegex.exec(normalizedText);
   while (dateMatch) {
     const [rawDate] = dateMatch;
-    const parsed = parseDate(rawDate.replace(/[/.]/g, '-'));
+    const parsed = parseDateOrMonthYear(rawDate.replace(/[/.]/g, '-'));
     if (parsed) {
       candidates.push({ date: parsed, index: dateMatch.index });
     }
@@ -393,16 +401,21 @@ function extractPossibleExpiryDate(text: string) {
 
   if (candidates.length === 0) return null;
 
-  const nearKeyword = candidates.filter(({ index }) =>
-    keywordPositions.some((keywordIndex) => Math.abs(keywordIndex - index) <= 40)
-  );
+  const nearKeyword = candidates.filter(({ index }) => {
+    const nearVenc = keywordPositions.some((keywordIndex) => Math.abs(keywordIndex - index) <= 55);
+    const nearBirthLike = birthPositions.some((birthIndex) => Math.abs(birthIndex - index) <= 35);
+    return nearVenc && !nearBirthLike;
+  });
 
   if (nearKeyword.length > 0) {
     return nearKeyword.sort((a, b) => b.date.getTime() - a.date.getTime())[0].date;
   }
 
   const now = new Date();
-  const futureOrCurrent = candidates.filter(({ date }) => date.getTime() >= now.getTime());
+  const futureOrCurrent = candidates.filter(({ date, index }) => {
+    const nearBirthLike = birthPositions.some((birthIndex) => Math.abs(birthIndex - index) <= 35);
+    return date.getTime() >= now.getTime() && !nearBirthLike;
+  });
   if (futureOrCurrent.length > 0) {
     return futureOrCurrent.sort((a, b) => a.date.getTime() - b.date.getTime())[0].date;
   }
@@ -410,8 +423,16 @@ function extractPossibleExpiryDate(text: string) {
   return candidates.sort((a, b) => b.date.getTime() - a.date.getTime())[0].date;
 }
 
-function parseDate(value: string) {
+function parseDateOrMonthYear(value: string) {
   const parts = value.split('-');
+  if (parts.length === 2) {
+    const [month, year] = parts.map(Number);
+    if (!Number.isInteger(month) || !Number.isInteger(year)) return null;
+    if (month < 1 || month > 12 || year < 1900 || year > 2100) return null;
+    return new Date(year, month, 0, 23, 59, 59, 999);
+  }
+
+  if (parts.length !== 3) return null;
   if (parts[0].length === 4) {
     const [year, month, day] = parts.map(Number);
     return safeDate(year, month, day);
