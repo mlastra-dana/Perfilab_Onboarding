@@ -12,7 +12,9 @@ export function createEmptyDocument(type: DocumentType) {
     type,
     validation: {
       status: 'pending' as const,
-      checks: []
+      checks: [],
+      uiStatus: undefined,
+      internalDiagnostics: []
     }
   };
 }

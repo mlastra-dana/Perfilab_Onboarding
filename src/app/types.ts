@@ -13,6 +13,12 @@ export type DocumentCheck = {
 export type DocumentValidationResult = {
   status: ValidationStatus;
   checks: DocumentCheck[];
+  uiStatus?: {
+    state: 'ok' | 'error';
+    title: string;
+    message: string;
+  };
+  internalDiagnostics?: string[];
   isIdDocument?: boolean;
   extractedId?: string;
   expiryDate?: string;

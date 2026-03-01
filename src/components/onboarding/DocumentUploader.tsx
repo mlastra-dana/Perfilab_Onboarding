@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { Loader2, UploadCloud } from 'lucide-react';
-import { DocumentCheck, DocumentRecord } from '../../app/types';
+import { DocumentRecord } from '../../app/types';
 import { DOCUMENT_LABELS } from '../../app/state';
 import { StatusBadge } from '../ui/Badge';
 import { Button } from '../ui/Button';
@@ -32,10 +32,25 @@ export function DocumentUploader({
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileAccept = useMemo(() => '.pdf,.png,.jpg,.jpeg,.webp', []);
-  const compactChecks = useMemo(
-    () => buildCompactChecks(docRecord.type, docRecord.validation.status, docRecord.validation.checks),
-    [docRecord.type, docRecord.validation.status, docRecord.validation.checks]
-  );
+  const uiFeedback = useMemo(() => {
+    if (docRecord.validation.uiStatus) {
+      return docRecord.validation.uiStatus;
+    }
+
+    if (docRecord.validation.status === 'valid') {
+      return { state: 'ok' as const, title: 'Validación completada', message: 'Documento aceptado.' };
+    }
+
+    if (docRecord.validation.status === 'error') {
+      return {
+        state: 'error' as const,
+        title: 'Error',
+        message: 'No pudimos validar este documento. Verifique que sea legible e intente nuevamente.'
+      };
+    }
+
+    return null;
+  }, [docRecord.validation.uiStatus, docRecord.validation.status]);
 
   async function handleFiles(fileList: FileList | null) {
     if (!fileList || fileList.length === 0) return;
@@ -127,81 +142,16 @@ export function DocumentUploader({
       ) : null}
 
       <ul className="space-y-1 text-sm">
-        {docRecord.validation.checks.length === 0 ? (
+        {!uiFeedback ? (
           <li className="text-slate-500">Aún no hay validaciones ejecutadas.</li>
         ) : (
-          compactChecks.map((check, idx) => {
-            return <ValidationItem key={`${check.label}-${idx}`} status={check.status} label={check.label} detail={check.detail} />;
-          })
+          <ValidationItem
+            status={uiFeedback.state === 'ok' ? 'pass' : 'fail'}
+            label={uiFeedback.title}
+            detail={uiFeedback.message}
+          />
         )}
       </ul>
-
-      {docRecord.type === 'cedulaRepresentante' && docRecord.validation.extractedId ? (
-        <p className="text-sm font-medium text-perfilabOrange">Cédula detectada: {docRecord.validation.extractedId}</p>
-      ) : null}
     </Card>
   );
-}
-
-function buildCompactChecks(
-  docType: DocumentRecord['type'],
-  validationStatus: DocumentRecord['validation']['status'],
-  checks: DocumentCheck[]
-): Array<{ status: 'pass' | 'fail' | 'warn'; label: string; detail?: string }> {
-  if (!checks.length) return [];
-
-  const failed = checks.find((check) => !check.passed);
-  const partial = checks.find((check) => check.passed && check.severity === 'warning' && /parcial/i.test(check.details ?? check.label));
-
-  if (validationStatus === 'error') {
-    const reason = failed ?? checks[0];
-    const detail =
-      docType === 'cedulaRepresentante'
-        ? mapCedulaFailReason(reason)
-        : reason.details ?? reason.label;
-    return [
-      {
-        status: 'fail',
-        label: 'Motivo del fallo',
-        detail
-      }
-    ];
-  }
-
-  if (validationStatus === 'valid') {
-    if (docType === 'cedulaRepresentante') {
-      return [{ status: 'pass', label: 'Cédula validada', detail: 'Documento de identidad vigente.' }];
-    }
-
-    return [
-      { status: 'pass', label: 'Validación completada', detail: 'Documento aceptado.' },
-      ...(partial
-        ? [
-            {
-              status: 'warn' as const,
-              label: 'Aceptado en modo demo',
-              detail: 'No se pudo leer todo el texto por OCR, pero el documento fue aceptado y puede continuar.'
-            }
-          ]
-        : [])
-    ];
-  }
-
-  return [];
-}
-
-function mapCedulaFailReason(reason: DocumentCheck) {
-  if (/VIGENCIA/i.test(reason.label)) {
-    return 'No se pudo validar vigencia de la cédula. Verifique que la fecha de vencimiento sea legible.';
-  }
-
-  if (/IDENTIFICACION/i.test(reason.label)) {
-    return 'El archivo no parece una cédula de identidad.';
-  }
-
-  if (/NUMERO DE CEDULA/i.test(reason.label)) {
-    return 'No se pudo leer el número de cédula.';
-  }
-
-  return 'No se pudo validar la cédula de identidad.';
 }

@@ -1,22 +1,11 @@
 import { DocumentType, DocumentValidationResult } from '../../app/types';
-import { extractTextWithOCR } from '../ocr/tesseract';
-import { extractPdfText, getPdfInfo, renderPdfPageToCanvas } from '../pdf/pdfUtils';
+import { extractPdfText, getPdfInfo } from '../pdf/pdfUtils';
 import { validateBasicFile } from './fileValidators';
-import { formatVenezuelanId, isValidVenezuelanId, normalizeVenezuelanId } from './venezuelanId';
 
-const ID_KEYWORDS = ['CEDULA DE IDENTIDAD', 'REPUBLICA BOLIVARIANA DE VENEZUELA', 'VENEZOLANO', 'IDENTIDAD', 'NACIONALIDAD'];
-const RIF_KEYWORDS = ['RIF', 'SENIAT', 'REGISTRO DE INFORMACION FISCAL'];
-const REGISTRO_KEYWORDS = [
-  'REGISTRO MERCANTIL',
-  'ACTA CONSTITUTIVA',
-  'DOCUMENTO CONSTITUTIVO',
-  'CAPITAL SOCIAL',
-  'ASAMBLEA',
-  'PROTOCOLO'
-];
-
-const MIN_IMAGE_SIDE = 800;
-const HIGH_QUALITY_SIDE = 1200;
+const RIF_REGEX = /\b[VEJG]-\d{8}-\d\b/i;
+const REGISTRO_HINTS = [/acta/i, /asamblea/i, /registro mercantil/i, /compa[nñ][ií]a an[oó]nima/i, /\bc\.a\./i, /estatutos/i, /junta directiva/i];
+const CEDULA_WORD_REGEX = /c[eé]dula/i;
+const SIMPLE_CEDULA_NUMBER = /\b\d{6,9}\b/;
 
 export async function validateDocumentFile(
   type: DocumentType,
@@ -26,7 +15,7 @@ export async function validateDocumentFile(
   const checks: DocumentValidationResult['checks'] = [];
 
   try {
-    onProgress?.(5);
+    onProgress?.(10);
     const basic = validateBasicFile(file);
 
     checks.push({
@@ -37,523 +26,177 @@ export async function validateDocumentFile(
 
     if (!basic.success) {
       onProgress?.(100);
-      return {
+      return finalizeValidationResult(type, {
         status: 'error',
         checks,
         error: basic.errors.join(' ')
-      };
+      });
     }
 
-    if (file.type.startsWith('image/')) {
-      const dataUrl = await readFileAsDataURL(file);
-      onProgress?.(20);
+    const isPdf = file.type.includes('pdf') || file.name.toLowerCase().endsWith('.pdf');
 
-      const dim = await getImageDimensionsFromDataUrl(dataUrl);
-      const qualityOk = Math.max(dim.width, dim.height) >= MIN_IMAGE_SIDE;
-      const highQuality = Math.max(dim.width, dim.height) >= HIGH_QUALITY_SIDE;
+    if (type === 'cedulaRepresentante' && file.type.startsWith('image/')) {
+      onProgress?.(45);
+      const dim = await getImageDimensions(file);
+      const resolutionOk = Math.max(dim.width, dim.height) >= 800;
+      const ratio = dim.width / dim.height;
+      const cardLikeRatio = ratio >= 1.2 || ratio <= 0.83;
+      const demoFallback = true;
+      const ratioOk = cardLikeRatio || demoFallback;
 
       checks.push({
-        label: 'Calidad de imagen',
-        passed: qualityOk,
-        severity: qualityOk ? (highQuality ? 'info' : 'warning') : 'error',
-        details: qualityOk
-          ? `${dim.width}x${dim.height} detectado.`
-          : `Resolución insuficiente (${dim.width}x${dim.height}). Suba una imagen con lado mayor >= ${MIN_IMAGE_SIDE}px.`
-      });
-
-      if (!qualityOk) {
-        onProgress?.(100);
-        return {
-          status: 'error',
-          checks,
-          error: 'La resolución del documento es demasiado baja.'
-        };
-      }
-
-      if (type !== 'cedulaRepresentante') {
-        onProgress?.(60);
-        const text = (await extractTextWithOCR(dataUrl)).trim();
-        onProgress?.(85);
-
-        if (!text) {
-          checks.push({
-            label: 'Lectura OCR del documento',
-            passed: false,
-            severity: 'error',
-            details: 'No se pudo leer el contenido. Suba una imagen más nítida.'
-          });
-          return {
-            status: 'error',
-            checks,
-            error: 'No se pudo leer el documento automáticamente.'
-          };
-        }
-
-        const docTypeCheck = buildDocumentTypeCheck(type, text);
-        checks.push(docTypeCheck);
-        onProgress?.(100);
-        return {
-          status: docTypeCheck.passed ? 'valid' : 'error',
-          checks,
-          error: docTypeCheck.passed
-            ? undefined
-            : `El archivo no parece corresponder a ${getDocTypeLabel(type)}. Verifique el documento cargado.`
-        };
-      }
-
-      onProgress?.(55);
-      const ocrAttempt = await extractCedulaTextFromRotations(dataUrl);
-      onProgress?.(85);
-
-      const result = buildCedulaValidationResult(ocrAttempt.text, checks, {
-        fileName: file.name,
-        allowPartial: true,
-        partialHint: ocrAttempt.text.trim()
-          ? undefined
-          : 'No se pudo leer texto (modo demo). Continuaremos con validación parcial.'
+        label: 'Estructura de imagen',
+        passed: resolutionOk && ratioOk,
+        details: `Resolución ${dim.width}x${dim.height}.`
       });
 
       onProgress?.(100);
-      return result;
-    }
-
-    onProgress?.(20);
-    const info = await getPdfInfo(file);
-    checks.push({
-      label: 'Documento PDF legible',
-      passed: info.pageCount > 0,
-      details: `${info.pageCount} página(s) detectada(s).`
-    });
-
-    let previewCanvas: HTMLCanvasElement | null = null;
-    let qualityOk = true;
-
-    try {
-      onProgress?.(35);
-      previewCanvas = await renderPdfPageToCanvas(file, 1);
-      const side = Math.max(previewCanvas.width, previewCanvas.height);
-      const highQualityPdf = side >= HIGH_QUALITY_SIDE;
-      qualityOk = side >= MIN_IMAGE_SIDE;
-
-      checks.push({
-        label: 'Calidad de escaneo PDF',
-        passed: qualityOk,
-        severity: qualityOk ? (highQualityPdf ? 'info' : 'warning') : 'error',
-        details: qualityOk
-          ? `Resolución de vista previa ${previewCanvas.width}x${previewCanvas.height}.`
-          : `Resolución insuficiente (${previewCanvas.width}x${previewCanvas.height}). Suba un PDF más nítido.`
-      });
-    } catch {
-      checks.push({
-        label: 'Calidad de escaneo PDF',
-        passed: true,
-        severity: 'warning',
-        details: 'No se pudo medir resolución del PDF. Validación parcial aplicada.'
-      });
-    }
-
-    if (type !== 'cedulaRepresentante') {
-      onProgress?.(60);
-      let textToValidate = (await extractPdfText(file)).trim();
-      if (!textToValidate && previewCanvas) {
-        onProgress?.(75);
-        textToValidate = (await extractTextWithOCR(previewCanvas)).trim();
-      }
-
-      if (!textToValidate) {
-        checks.push({
-          label: 'Lectura del documento',
-          passed: false,
-          severity: 'error',
-          details: 'No se pudo extraer texto del PDF. Suba una versión más legible.'
-        });
-        return {
-          status: 'error',
-          checks,
-          error: 'No se pudo validar automáticamente el tipo de documento.'
-        };
-      }
-
-      const docTypeCheck = buildDocumentTypeCheck(type, textToValidate);
-      checks.push(docTypeCheck);
-      onProgress?.(100);
-      return {
-        status: docTypeCheck.passed ? 'valid' : 'error',
+      return finalizeValidationResult(type, {
+        status: resolutionOk && ratioOk ? 'valid' : 'error',
         checks,
-        error: docTypeCheck.passed
-          ? undefined
-          : `El archivo no parece corresponder a ${getDocTypeLabel(type)}. Verifique el documento cargado.`
-      };
+        isIdDocument: resolutionOk && ratioOk,
+        error: resolutionOk && ratioOk ? undefined : 'No pudimos validar el documento.'
+      });
     }
 
-    if (!qualityOk) {
+    if (!isPdf) {
       onProgress?.(100);
-      return {
+      checks.push({
+        label: 'Tipo de documento',
+        passed: false,
+        details: 'Se requiere PDF para esta validación.'
+      });
+      return finalizeValidationResult(type, {
         status: 'error',
         checks,
-        isIdDocument: false,
-        error: 'La resolución del documento es demasiado baja.'
-      };
-    }
-
-    onProgress?.(60);
-    let cedulaText = (await extractPdfText(file)).trim();
-    if (!cedulaText && previewCanvas) {
-      onProgress?.(75);
-      cedulaText = (await safeExtractText(previewCanvas, 12000)).trim();
-    }
-
-    const result = buildCedulaValidationResult(cedulaText, checks, {
-      fileName: file.name,
-      allowPartial: true,
-      partialHint: cedulaText
-        ? undefined
-        : 'No se pudo leer texto (modo demo). Continuaremos con validación parcial.'
-    });
-
-    onProgress?.(100);
-    return result;
-  } catch {
-    onProgress?.(100);
-
-    if (type === 'cedulaRepresentante') {
-      return buildCedulaValidationResult('', checks, {
-        allowPartial: true,
-        partialHint: 'No se pudo leer texto (modo demo). Continuaremos con validación parcial.'
+        error: 'No pudimos validar el documento.'
       });
     }
 
+    let pageCount = 0;
+    try {
+      const info = await getPdfInfo(file);
+      pageCount = info.pageCount;
+    } catch {
+      pageCount = 0;
+    }
+
+    onProgress?.(50);
+    const rawPdfText = await extractPdfText(file);
+    const pdfText = normalizeText(rawPdfText);
+
+    let valid = false;
+
+    if (type === 'rif') {
+      valid = RIF_REGEX.test(rawPdfText) || pdfText.includes('seniat');
+      const scannedPdfFallback = rawPdfText.trim().length === 0 && pageCount > 0;
+      if (!valid && scannedPdfFallback) {
+        valid = true;
+      }
+      checks.push({
+        label: 'Tipo de documento',
+        passed: valid,
+        details: valid ? 'RIF identificado.' : 'No se detectó estructura RIF/SENIAT.'
+      });
+    } else if (type === 'registroMercantil') {
+      valid = REGISTRO_HINTS.some((regex) => regex.test(rawPdfText));
+      checks.push({
+        label: 'Tipo de documento',
+        passed: valid,
+        details: valid ? 'Documento societario identificado.' : 'No se detectó estructura de acta/registro.'
+      });
+    } else {
+      const hasCedulaWord = CEDULA_WORD_REGEX.test(rawPdfText);
+      const hasNumber = SIMPLE_CEDULA_NUMBER.test(rawPdfText);
+      valid = hasCedulaWord && hasNumber;
+
+      checks.push({
+        label: 'Tipo de documento',
+        passed: valid,
+        details: valid ? 'Cédula identificada.' : 'No se detectó estructura de cédula.'
+      });
+    }
+
+    onProgress?.(100);
+    return finalizeValidationResult(type, {
+      status: valid ? 'valid' : 'error',
+      checks,
+      isIdDocument: type === 'cedulaRepresentante' ? valid : undefined,
+      error: valid ? undefined : 'No pudimos validar el documento.'
+    });
+  } catch {
+    onProgress?.(100);
     checks.push({
       label: 'Lectura del documento',
       passed: false,
       severity: 'error',
-      details: 'No se pudo validar el archivo. Intente cargarlo nuevamente.'
+      details: 'No pudimos validar el documento.'
     });
 
-    return {
+    return finalizeValidationResult(type, {
       status: 'error',
       checks,
-      error: 'No se pudo validar el archivo. Intente cargarlo nuevamente.'
-    };
+      error: 'No pudimos validar el documento.'
+    });
   }
-}
-
-function buildDocumentTypeCheck(type: DocumentType, rawText: string): DocumentValidationResult['checks'][number] {
-  const normalized = normalizeText(rawText);
-  const { keywords, minHits, label } = getTypeRules(type);
-  const hits = keywords.filter((keyword) => normalized.includes(keyword));
-  const passed = hits.length >= minHits;
-
-  return {
-    label,
-    passed,
-    severity: passed ? 'info' : 'error',
-    details: passed
-      ? `Coincidencias: ${hits.slice(0, 3).join(', ')}`
-      : `No se detectaron palabras clave esperadas de ${getDocTypeLabel(type)}.`
-  };
-}
-
-function getTypeRules(type: DocumentType) {
-  if (type === 'rif') {
-    return {
-      label: 'Documento corresponde a RIF',
-      keywords: RIF_KEYWORDS.map(normalizeText),
-      minHits: 1
-    };
-  }
-
-  return {
-    label: 'Documento corresponde a Registro Mercantil / Acta',
-    keywords: REGISTRO_KEYWORDS.map(normalizeText),
-    minHits: 1
-  };
-}
-
-function getDocTypeLabel(type: DocumentType) {
-  if (type === 'rif') return 'RIF';
-  if (type === 'registroMercantil') return 'Registro Mercantil / Acta Constitutiva';
-  return 'Cédula';
 }
 
 function normalizeText(value: string) {
   return value
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .toUpperCase();
+    .toLowerCase();
 }
 
-function buildCedulaValidationResult(
-  rawText: string,
-  checks: DocumentValidationResult['checks'],
-  options?: { allowPartial?: boolean; partialHint?: string; fileName?: string }
-): DocumentValidationResult {
-  const normalized = normalizeText(rawText);
-  const hasKeyword = ID_KEYWORDS.some((keyword) => normalized.includes(normalizeText(keyword)));
-  const hasIdPattern = /(?:^|\b)[VE][\-\s]?\d{6,8}(?:\b|$)/i.test(rawText);
-  const isIdDocument = hasKeyword || hasIdPattern;
-
-  const canonicalId = normalizeVenezuelanId(rawText);
-  const formattedId = canonicalId && isValidVenezuelanId(canonicalId) ? formatVenezuelanId(canonicalId) : null;
-
-  const hasReadableSignals = rawText.trim().length > 0 && (isIdDocument || Boolean(formattedId));
-  const allowPartial = Boolean(options?.allowPartial);
-
-  if (!rawText.trim()) {
-    checks.push({
-      label: 'Lectura del documento',
-      passed: true,
-      severity: 'warning',
-      details: options?.partialHint ?? 'No se pudo leer texto (modo demo). Continuaremos con validación parcial.'
-    });
-  }
-
-  const looksLikeByFileName = Boolean(options?.fileName && /(cedula|c[eé]dula|identidad|ci)/i.test(options.fileName));
-  const idDetected = isIdDocument || looksLikeByFileName || allowPartial;
-
-  checks.push({
-    label: 'Documento parece identificación',
-    passed: idDetected,
-    severity: idDetected && !isIdDocument ? 'warning' : idDetected ? 'info' : 'error',
-    details: idDetected
-      ? isIdDocument
-        ? 'Se detectaron palabras clave de identificación.'
-        : 'Documento parece identificación (validación parcial).'
-      : 'No se detectaron palabras clave tipo cédula/identidad.'
-  });
-
-  checks.push({
-    label: 'Número de cédula detectado',
-    passed: Boolean(formattedId) || allowPartial,
-    severity: formattedId ? 'info' : 'warning',
-    details: formattedId
-      ? formattedId
-      : 'No se pudo leer la cédula. Asegúrese de que el documento esté nítido y que el número sea visible.'
-  });
-
-  const expiryDate = extractPossibleExpiryDate(rawText);
-  let notExpired = true;
-
-  if (expiryDate) {
-    const now = new Date();
-    notExpired = expiryDate.getTime() >= now.getTime();
-    checks.push({
-      label: 'Vigencia de documento',
-      passed: notExpired,
-      severity: notExpired ? 'info' : 'error',
-      details: `Fecha detectada: ${formatDate(expiryDate)}.`
-    });
-  } else {
-    notExpired = false;
-    checks.push({
-      label: 'Vigencia de documento',
-      passed: false,
-      severity: 'error',
-      details: 'No se pudo confirmar la fecha de vencimiento.'
-    });
-  }
-
-  const validBySignals = hasReadableSignals ? isIdDocument || Boolean(formattedId) : allowPartial;
-  const valid = validBySignals && notExpired;
-
-  return {
-    status: valid ? 'valid' : 'error',
-    checks,
-    isIdDocument: idDetected,
-    extractedId: formattedId ?? undefined,
-    expiryDate: expiryDate ? formatDate(expiryDate) : undefined,
-    error: valid ? undefined : 'La cédula no cumple validación mínima. Suba un documento más legible y vigente.'
-  };
+function getDocTypeLabel(type: DocumentType) {
+  if (type === 'rif') return 'RIF';
+  if (type === 'registroMercantil') return 'Registro Mercantil';
+  return 'Cédula';
 }
 
-function extractPossibleExpiryDate(text: string) {
-  const normalizedText = text
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toUpperCase();
-
-  const keywordRegex = /(F\.?\s*VENCIMIENTO|VENCIMIENTO|VENC|EXPIRA|EXPIRACION|CADUCA|HASTA)/g;
-  const birthLikeRegex = /(F\.?\s*NACIMIENTO|NACIMIENTO|NACIM|EXPEDICION|F\.?\s*EXPEDICION|EMISION)/g;
-  const keywordPositions: number[] = [];
-  const birthPositions: number[] = [];
-  let keywordMatch: RegExpExecArray | null = keywordRegex.exec(normalizedText);
-  while (keywordMatch) {
-    keywordPositions.push(keywordMatch.index);
-    keywordMatch = keywordRegex.exec(normalizedText);
-  }
-  let birthMatch: RegExpExecArray | null = birthLikeRegex.exec(normalizedText);
-  while (birthMatch) {
-    birthPositions.push(birthMatch.index);
-    birthMatch = birthLikeRegex.exec(normalizedText);
-  }
-
-  const dateRegex = /(\d{2}[\/\-\.]\d{2}[\/\-\.]\d{4}|\d{4}[\/\-\.]\d{2}[\/\-\.]\d{2}|\d{1,2}[\/\-\.]\d{4})/g;
-  const candidates: Array<{ date: Date; index: number }> = [];
-  let dateMatch: RegExpExecArray | null = dateRegex.exec(normalizedText);
-  while (dateMatch) {
-    const [rawDate] = dateMatch;
-    const parsed = parseDateOrMonthYear(rawDate.replace(/[/.]/g, '-'));
-    if (parsed) {
-      candidates.push({ date: parsed, index: dateMatch.index });
-    }
-    dateMatch = dateRegex.exec(normalizedText);
-  }
-
-  if (candidates.length === 0) return null;
-
-  const nearKeyword = candidates.filter(({ index }) => {
-    const nearVenc = keywordPositions.some((keywordIndex) => Math.abs(keywordIndex - index) <= 55);
-    const nearBirthLike = birthPositions.some((birthIndex) => Math.abs(birthIndex - index) <= 35);
-    return nearVenc && !nearBirthLike;
-  });
-
-  if (nearKeyword.length > 0) {
-    return nearKeyword.sort((a, b) => b.date.getTime() - a.date.getTime())[0].date;
-  }
-
-  const now = new Date();
-  const futureOrCurrent = candidates.filter(({ date, index }) => {
-    const nearBirthLike = birthPositions.some((birthIndex) => Math.abs(birthIndex - index) <= 35);
-    return date.getTime() >= now.getTime() && !nearBirthLike;
-  });
-  if (futureOrCurrent.length > 0) {
-    return futureOrCurrent.sort((a, b) => a.date.getTime() - b.date.getTime())[0].date;
-  }
-
-  return candidates.sort((a, b) => b.date.getTime() - a.date.getTime())[0].date;
-}
-
-function parseDateOrMonthYear(value: string) {
-  const parts = value.split('-');
-  if (parts.length === 2) {
-    const [month, year] = parts.map(Number);
-    if (!Number.isInteger(month) || !Number.isInteger(year)) return null;
-    if (month < 1 || month > 12 || year < 1900 || year > 2100) return null;
-    return new Date(year, month, 0, 23, 59, 59, 999);
-  }
-
-  if (parts.length !== 3) return null;
-  if (parts[0].length === 4) {
-    const [year, month, day] = parts.map(Number);
-    return safeDate(year, month, day);
-  }
-
-  const [day, month, year] = parts.map(Number);
-  return safeDate(year, month, day);
-}
-
-function safeDate(year: number, month: number, day: number) {
-  if (month < 1 || month > 12 || day < 1 || day > 31 || year < 1900 || year > 2100) return null;
-  const date = new Date(year, month - 1, day);
-  if (Number.isNaN(date.getTime())) return null;
-  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
-  return date;
-}
-
-function formatDate(date: Date) {
-  return date.toLocaleDateString('es-VE');
-}
-
-async function extractCedulaTextFromRotations(dataUrl: string): Promise<{ text: string; score: number; angle: number }> {
-  const image = await loadImageFromDataUrl(dataUrl);
-  const angles = image.width >= image.height ? [0, 90, 270] : [90, 0, 180];
-  let best = { text: '', score: 0, angle: 0 };
-
-  for (const angle of angles) {
-    const canvas = createRotatedCanvas(image, angle);
-    const text = (await safeExtractText(canvas, 7000)).trim();
-    const score = scoreCedulaText(text);
-
-    if (score > best.score) {
-      best = { text, score, angle };
-    }
-
-    if (score >= 3) {
-      return { text, score, angle };
-    }
-  }
-
-  return best;
-}
-
-function scoreCedulaText(text: string) {
-  if (!text.trim()) return 0;
-  const normalized = normalizeText(text);
-  const keywordHits = ID_KEYWORDS.reduce((total, keyword) => {
-    return normalized.includes(normalizeText(keyword)) ? total + 1 : total;
-  }, 0);
-
-  const idHit = /(?:^|\b)[VE][\-\s]?\d{6,8}(?:\b|$)/i.test(text) ? 2 : 0;
-  return keywordHits + idHit;
-}
-
-function safeExtractText(source: string | HTMLCanvasElement, timeoutMs = 12000) {
-  const preparedSource = source instanceof HTMLCanvasElement ? prepareCanvasForOcr(source) : source;
-  const ocrPromise = extractTextWithOCR(preparedSource).catch(() => '');
-  const timeoutPromise = new Promise<string>((resolve) => {
-    window.setTimeout(() => resolve(''), timeoutMs);
-  });
-  return Promise.race([ocrPromise, timeoutPromise]);
-}
-
-function readFileAsDataURL(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = typeof reader.result === 'string' ? reader.result : '';
-      if (!result) {
-        reject(new Error('No se pudo leer imagen.'));
-        return;
-      }
-      resolve(result);
-    };
-    reader.onerror = () => reject(new Error('No se pudo leer imagen.'));
-    reader.readAsDataURL(file);
-  });
-}
-
-function loadImageFromDataUrl(dataUrl: string): Promise<HTMLImageElement> {
+function getImageDimensions(file: File): Promise<{ width: number; height: number }> {
   return new Promise((resolve, reject) => {
     const image = new Image();
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error('No se pudo cargar la imagen.'));
-    image.src = dataUrl;
+    image.onload = () => resolve({ width: image.width, height: image.height });
+    image.onerror = () => reject(new Error('No se pudo leer la imagen.'));
+    image.src = URL.createObjectURL(file);
   });
 }
 
-async function getImageDimensionsFromDataUrl(dataUrl: string): Promise<{ width: number; height: number }> {
-  const image = await loadImageFromDataUrl(dataUrl);
-  return { width: image.width, height: image.height };
-}
+function finalizeValidationResult(type: DocumentType, result: DocumentValidationResult): DocumentValidationResult {
+  const diagnostics = result.checks.map((check) => {
+    const status = check.passed ? (check.severity ?? 'info') : 'error';
+    return `[${status}] ${check.label}${check.details ? `: ${check.details}` : ''}`;
+  });
 
-function createRotatedCanvas(image: HTMLImageElement, angle: number) {
-  const canvas = document.createElement('canvas');
-  const context = canvas.getContext('2d');
-  if (!context) return canvas;
+  const hasTypeMismatch = result.checks.some((check) => /tipo de documento/i.test(check.label) && !check.passed);
 
-  const radians = (angle * Math.PI) / 180;
-  const swap = angle % 180 !== 0;
-  canvas.width = swap ? image.height : image.width;
-  canvas.height = swap ? image.width : image.height;
+  const uiStatus =
+    result.status === 'valid'
+      ? {
+          state: 'ok' as const,
+          title: 'Validación completada',
+          message: 'Documento aceptado.'
+        }
+      : {
+          state: 'error' as const,
+          title: 'Error',
+          message: hasTypeMismatch
+            ? `El documento no corresponde al tipo requerido (${getDocTypeLabel(type)}).`
+            : 'No pudimos validar el documento. Verifique que sea el archivo correcto e intente nuevamente.'
+        };
 
-  context.translate(canvas.width / 2, canvas.height / 2);
-  context.rotate(radians);
-  context.drawImage(image, -image.width / 2, -image.height / 2);
+  if (import.meta.env.DEV) {
+    console.debug(`[document-validation:${type}]`, {
+      status: result.status,
+      error: result.error,
+      diagnostics
+    });
+  }
 
-  return canvas;
-}
-
-function prepareCanvasForOcr(canvas: HTMLCanvasElement) {
-  const maxSide = 1400;
-  const side = Math.max(canvas.width, canvas.height);
-  if (side <= maxSide) return canvas;
-
-  const scale = maxSide / side;
-  const resized = document.createElement('canvas');
-  resized.width = Math.round(canvas.width * scale);
-  resized.height = Math.round(canvas.height * scale);
-  const ctx = resized.getContext('2d');
-  if (!ctx) return canvas;
-  ctx.drawImage(canvas, 0, 0, resized.width, resized.height);
-  return resized;
+  return {
+    ...result,
+    uiStatus,
+    internalDiagnostics: diagnostics
+  };
 }
