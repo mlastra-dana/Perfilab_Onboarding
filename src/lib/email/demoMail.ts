@@ -39,9 +39,12 @@ export function buildDemoEmail(state: OnboardingState, companyId: string, extern
     `- Registro Mercantil: ${statusLabel(state.documents.registroMercantil.validation.status)} | Archivo: ${
       state.documents.registroMercantil.fileName ?? 'N/A'
     }`,
-    `- Cédula Representante: ${statusLabel(state.documents.cedulaRepresentante.validation.status)} | Archivo: ${
-      state.documents.cedulaRepresentante.fileName ?? 'N/A'
-    } | Cédula detectada: ${maskDetectedId(state.documents.cedulaRepresentante.validation.extractedId)}`,
+    `- Cédula Representante 1: ${statusLabel(state.representatives[0].document.validation.status)} | Archivo: ${
+      state.representatives[0].document.fileName ?? 'N/A'
+    } | Cédula detectada: ${maskDetectedId(state.representatives[0].document.validation.extractedId)}`,
+    `- Cédula Representante 2: ${
+      state.representatives[1].enabled ? statusLabel(state.representatives[1].document.validation.status) : 'No aplica'
+    } | Archivo: ${state.representatives[1].enabled ? state.representatives[1].document.fileName ?? 'N/A' : 'No aplica'}`,
     `- Archivo de datos: ${statusLabel(state.excel.status)} | Archivo: N/A | Filas: ${state.excel.totalRows} | Válidas: ${
       state.excel.validRows
     } | Inválidas: ${state.excel.invalidRows}`,

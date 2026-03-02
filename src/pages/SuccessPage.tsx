@@ -8,14 +8,17 @@ import { Toast } from '../components/ui/Toast';
 import { buildReceiptData, formatDateTime, generateReceiptHtml, openReceiptPrintWindow, shortRequestCode } from '../lib/receipt';
 
 export function SuccessPage({ companyId }: { companyId: string }) {
-  const { state, resetOnboardingState } = useOnboarding();
+  const { state, resetOnboarding } = useOnboarding();
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
   const submittedAt = state.submission.submittedAt ? new Date(state.submission.submittedAt) : new Date();
   const requestCode = shortRequestCode(state.submission.registrationId);
-  const validDocsCount = Object.values(state.documents).filter((doc) => doc.validation.status === 'valid').length;
+  const representative1 = state.representatives[0];
+  const validDocsCount =
+    Object.values(state.documents).filter((doc) => doc.validation.status === 'valid').length +
+    (representative1.document.validation.status === 'valid' ? 1 : 0);
   const excelReceived = state.excel.totalRows > 0;
 
   async function handleCopyCode() {
@@ -35,7 +38,7 @@ export function SuccessPage({ companyId }: { companyId: string }) {
   }
 
   function handleBackHome() {
-    resetOnboardingState();
+    resetOnboarding();
     navigate(`/onboarding/${companyId}`);
   }
 
@@ -93,7 +96,7 @@ export function SuccessPage({ companyId }: { companyId: string }) {
 
       <div className="mt-6 flex flex-wrap justify-end gap-2">
         <Button type="button" onClick={handleDownloadReceipt}>
-          Descargar constancia
+          Descargar comprobante
         </Button>
         <Button type="button" variant="secondary" onClick={handleBackHome}>
           Volver al inicio

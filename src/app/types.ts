@@ -1,6 +1,8 @@
 import { TenantConfig } from '../data/tenants';
 
 export type DocumentType = 'rif' | 'registroMercantil' | 'cedulaRepresentante';
+export type DocumentRecordType = DocumentType;
+export type RequiredDocumentType = 'rif' | 'registroMercantil';
 export type ValidationStatus = 'pending' | 'validating' | 'valid' | 'error';
 
 export type DocumentCheck = {
@@ -26,12 +28,18 @@ export type DocumentValidationResult = {
 };
 
 export type DocumentRecord = {
-  type: DocumentType;
+  type: DocumentRecordType;
   fileName?: string;
   fileType?: string;
   fileSize?: number;
   previewUrl?: string;
   validation: DocumentValidationResult;
+};
+
+export type RepresentativeRecord = {
+  id: 1 | 2;
+  enabled: boolean;
+  document: DocumentRecord;
 };
 
 export type ExcelRowIssue = {
@@ -65,7 +73,8 @@ export type SubmissionState = {
 export type OnboardingState = {
   companyId: string;
   tenant: TenantConfig;
-  documents: Record<DocumentType, DocumentRecord>;
+  documents: Record<RequiredDocumentType, DocumentRecord>;
+  representatives: [RepresentativeRecord, RepresentativeRecord];
   excel: ExcelValidationState;
   submission: SubmissionState;
 };

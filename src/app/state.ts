@@ -1,13 +1,13 @@
-import { DocumentType, OnboardingState } from './types';
+import { DocumentRecordType, OnboardingState, RepresentativeRecord } from './types';
 import { TenantConfig } from '../data/tenants';
 
-export const DOCUMENT_LABELS: Record<DocumentType, string> = {
+export const DOCUMENT_LABELS: Record<DocumentRecordType, string> = {
   rif: 'RIF',
   registroMercantil: 'Registro Mercantil',
   cedulaRepresentante: 'Cédula del Representante'
 };
 
-export function createEmptyDocument(type: DocumentType) {
+export function createEmptyDocument(type: DocumentRecordType) {
   return {
     type,
     validation: {
@@ -19,15 +19,23 @@ export function createEmptyDocument(type: DocumentType) {
   };
 }
 
+export function createEmptyRepresentative(id: 1 | 2, enabled: boolean): RepresentativeRecord {
+  return {
+    id,
+    enabled,
+    document: createEmptyDocument('cedulaRepresentante')
+  };
+}
+
 export function createInitialState(companyId: string, tenant: TenantConfig): OnboardingState {
   return {
     companyId,
     tenant,
     documents: {
       rif: createEmptyDocument('rif'),
-      registroMercantil: createEmptyDocument('registroMercantil'),
-      cedulaRepresentante: createEmptyDocument('cedulaRepresentante')
+      registroMercantil: createEmptyDocument('registroMercantil')
     },
+    representatives: [createEmptyRepresentative(1, true), createEmptyRepresentative(2, false)],
     excel: {
       status: 'pending',
       totalRows: 0,

@@ -93,7 +93,7 @@ function OnboardingContent({
   const { resetOnboardingState } = useOnboarding();
   const previousPathRef = useRef<string | null>(null);
   const stepTitles: Record<string, string> = {
-    welcome: 'Perfilab | Inicio',
+    welcome: 'Perfilab | Onboarding',
     documents: 'Perfilab | Documentos',
     excel: 'Perfilab | Excel',
     review: 'Perfilab | Revisión',

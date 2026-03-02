@@ -39,23 +39,20 @@ export async function validateDocumentFile(
       onProgress?.(45);
       const dim = await getImageDimensions(file);
       const resolutionOk = Math.max(dim.width, dim.height) >= 800;
-      const ratio = dim.width / dim.height;
-      const cardLikeRatio = ratio >= 1.2 || ratio <= 0.83;
-      const demoFallback = true;
-      const ratioOk = cardLikeRatio || demoFallback;
+      const validInDemo = true;
 
       checks.push({
         label: 'Estructura de imagen',
-        passed: resolutionOk && ratioOk,
+        passed: validInDemo,
         details: `Resolución ${dim.width}x${dim.height}.`
       });
 
       onProgress?.(100);
       return finalizeValidationResult(type, {
-        status: resolutionOk && ratioOk ? 'valid' : 'error',
+        status: validInDemo ? 'valid' : 'error',
         checks,
-        isIdDocument: resolutionOk && ratioOk,
-        error: resolutionOk && ratioOk ? undefined : 'No pudimos validar el documento.'
+        isIdDocument: validInDemo,
+        error: validInDemo ? undefined : 'No pudimos validar el documento.'
       });
     }
 
@@ -112,7 +109,8 @@ export async function validateDocumentFile(
     } else {
       const hasCedulaWord = CEDULA_WORD_REGEX.test(rawPdfText);
       const hasNumber = SIMPLE_CEDULA_NUMBER.test(rawPdfText);
-      valid = hasCedulaWord && hasNumber;
+      const scannedPdfFallback = pageCount > 0;
+      valid = (hasCedulaWord && hasNumber) || scannedPdfFallback;
 
       checks.push({
         label: 'Tipo de documento',

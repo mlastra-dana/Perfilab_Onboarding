@@ -18,18 +18,19 @@ export function AppLayout({
   currentStep: number;
   children: React.ReactNode;
 }) {
-  const { state, resetOnboardingState } = useOnboarding();
+  const { state, resetOnboarding } = useOnboarding();
   const navigate = useNavigate();
   const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   const hasLoadedData =
     Object.values(state.documents).some((doc) => Boolean(doc.fileName)) ||
+    state.representatives.some((rep) => rep.enabled && Boolean(rep.document.fileName)) ||
     state.excel.totalRows > 0 ||
     state.excel.processedRows > 0;
 
   function handleHomeClick(event: React.MouseEvent<HTMLAnchorElement>) {
     if (!hasLoadedData) {
-      resetOnboardingState();
+      resetOnboarding();
       return;
     }
 
@@ -38,8 +39,13 @@ export function AppLayout({
   }
 
   function confirmResetAndGoHome() {
-    resetOnboardingState();
+    resetOnboarding();
     setShowResetConfirm(false);
+    navigate(`/onboarding/${tenant.companyId}`);
+  }
+
+  function handleExit() {
+    resetOnboarding();
     navigate(`/onboarding/${tenant.companyId}`);
   }
 
@@ -48,9 +54,10 @@ export function AppLayout({
       <PerfilabHeader
         tenantName={tenant.name}
         logoUrl={tenant.logoUrl}
-        phone={tenant.phone}
         companyId={tenant.companyId}
         onHomeClick={handleHomeClick}
+        onExit={handleExit}
+        showExit={currentStep > 1}
       />
 
       <main className="mx-auto w-full max-w-7xl px-4 py-8 md:px-6">

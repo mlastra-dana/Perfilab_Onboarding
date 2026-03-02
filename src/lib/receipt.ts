@@ -27,7 +27,11 @@ export function buildReceiptData(state: OnboardingState): ReceiptData {
     documents: [
       { label: 'RIF', fileName: state.documents.rif.fileName },
       { label: 'Registro Mercantil / Acta', fileName: state.documents.registroMercantil.fileName },
-      { label: 'Cédula del representante', fileName: state.documents.cedulaRepresentante.fileName }
+      { label: 'Representante 1', fileName: state.representatives[0].document.fileName },
+      {
+        label: 'Representante 2',
+        fileName: state.representatives[1].enabled ? state.representatives[1].document.fileName : 'No aplica'
+      }
     ],
     excel: {
       received: state.excel.totalRows > 0,
@@ -50,6 +54,9 @@ export function generateReceiptHtml(data: ReceiptData) {
   const year = new Date().getFullYear();
   const rows = data.documents
     .map((doc) => {
+      if (doc.fileName === 'No aplica') {
+        return `<tr><td>${escapeHtml(doc.label)}</td><td>No aplica</td></tr>`;
+      }
       const fileInfo = doc.fileName ? ` (${escapeHtml(doc.fileName)})` : '';
       return `<tr><td>${escapeHtml(doc.label)}</td><td>Recibido${fileInfo}</td></tr>`;
     })
@@ -91,7 +98,7 @@ export function generateReceiptHtml(data: ReceiptData) {
       <div class="header">
         <div class="brand">Grupo <span class="accent">Perfilab</span></div>
       </div>
-      <h1>Constancia de recepción de documentación</h1>
+      <h1>Comprobante de recepción de documentación</h1>
       <p class="meta"><strong>Empresa:</strong> ${escapeHtml(data.companyName)} (${escapeHtml(data.companyId)})</p>
       <p class="meta"><strong>Código de solicitud:</strong> <span class="code">${escapeHtml(data.requestCode)}</span></p>
       <p class="meta"><strong>Fecha/Hora:</strong> ${escapeHtml(dateLabel)}</p>

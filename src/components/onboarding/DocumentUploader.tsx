@@ -12,6 +12,10 @@ import { Progress } from '../ui/Progress';
 
 export function DocumentUploader({
   docRecord,
+  title,
+  sectionTitle,
+  sectionDescription,
+  sectionAction,
   loading,
   isUploading,
   uploadProgress,
@@ -21,6 +25,10 @@ export function DocumentUploader({
   onRemoveFile
 }: {
   docRecord: DocumentRecord;
+  title?: string;
+  sectionTitle?: string;
+  sectionDescription?: string;
+  sectionAction?: React.ReactNode;
   loading: boolean;
   isUploading: boolean;
   uploadProgress: number;
@@ -65,8 +73,18 @@ export function DocumentUploader({
 
   return (
     <Card className="space-y-4 animate-fadeUp">
+      {sectionTitle ? (
+        <div className="space-y-2 border-b border-slate-200 pb-3">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-lg font-semibold text-slate-900">{sectionTitle}</h3>
+            {sectionAction}
+          </div>
+          {sectionDescription ? <p className="text-sm text-slate-600">{sectionDescription}</p> : null}
+        </div>
+      ) : null}
+
       <div className="flex items-center justify-between gap-3">
-        <h3 className="text-lg font-semibold text-slate-900">{DOCUMENT_LABELS[docRecord.type]}</h3>
+        <h3 className="text-lg font-semibold text-slate-900">{title ?? DOCUMENT_LABELS[docRecord.type]}</h3>
         <StatusBadge status={loading ? 'validating' : docRecord.validation.status} />
       </div>
 

@@ -83,13 +83,24 @@ export function ReviewPage({ companyId }: { companyId: string }) {
       <Card>
         <h2 className="text-lg font-semibold text-slate-900">Resumen documental</h2>
         <ul className="mt-3 space-y-2">
-          {Object.values(state.documents).map((doc) => (
-            <li key={doc.type} className="flex items-center justify-between rounded-lg border border-slate-200 p-3">
+          {Object.values(state.documents).map((doc, idx) => (
+            <li key={`${doc.type}-${idx}`} className="flex items-center justify-between rounded-lg border border-slate-200 p-3">
               <div>
                 <p className="font-medium text-slate-900">{DOCUMENT_LABELS[doc.type]}</p>
                 <p className="text-xs text-slate-500">{doc.fileName ?? 'Sin archivo'}</p>
               </div>
               <StatusBadge status={doc.validation.status} />
+            </li>
+          ))}
+          {state.representatives.map((rep) => (
+            <li key={`rep-${rep.id}`} className="flex items-center justify-between rounded-lg border border-slate-200 p-3">
+              <div>
+                <p className="font-medium text-slate-900">Cédula del Representante {rep.id}</p>
+                <p className="text-xs text-slate-500">
+                  {rep.enabled ? rep.document.fileName ?? 'Sin archivo' : 'No aplica'}
+                </p>
+              </div>
+              <StatusBadge status={rep.enabled ? rep.document.validation.status : 'valid'} />
             </li>
           ))}
         </ul>

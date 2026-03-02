@@ -1,19 +1,21 @@
-import { Menu, PhoneCall } from 'lucide-react';
+import { LogOut, Menu } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { MouseEvent } from 'react';
 
 export function PerfilabHeader({
   tenantName,
   logoUrl,
-  phone,
   companyId,
-  onHomeClick
+  onHomeClick,
+  onExit,
+  showExit = true
 }: {
   tenantName: string;
   logoUrl?: string;
-  phone: string;
   companyId: string;
   onHomeClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
+  onExit?: () => void;
+  showExit?: boolean;
 }) {
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200 bg-white">
@@ -42,14 +44,17 @@ export function PerfilabHeader({
         </nav>
 
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            className="inline-flex h-11 items-center gap-2 rounded-full bg-perfilabOrange px-4 text-sm font-bold text-white shadow-soft-orange transition hover:bg-[#de7e22]"
-            aria-label={`Llamar al ${phone}`}
-          >
-            <PhoneCall className="h-4 w-4" />
-            <span>{phone}</span>
-          </button>
+          {showExit ? (
+            <button
+              type="button"
+              onClick={onExit}
+              className="inline-flex h-10 items-center gap-2 rounded-full border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              aria-label="Salir del onboarding"
+            >
+              <LogOut className="h-4 w-4" />
+              <span>Salir</span>
+            </button>
+          ) : null}
           <button type="button" className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 lg:hidden" aria-label="Abrir menú">
             <Menu className="h-5 w-5 text-slate-700" />
           </button>
