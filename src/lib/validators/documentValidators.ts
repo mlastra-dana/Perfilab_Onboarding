@@ -100,6 +100,10 @@ export async function validateDocumentFile(
       });
     } else if (type === 'registroMercantil') {
       valid = REGISTRO_HINTS.some((regex) => regex.test(rawPdfText));
+      const scannedPdfFallback = rawPdfText.trim().length === 0 && pageCount > 0;
+      if (!valid && scannedPdfFallback) {
+        valid = true;
+      }
       checks.push({
         label: 'Tipo de documento',
         passed: valid,
