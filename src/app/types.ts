@@ -14,6 +14,7 @@ export type DocumentCheck = {
 
 export type DocumentValidationResult = {
   status: ValidationStatus;
+  confidence?: 'high' | 'low';
   checks: DocumentCheck[];
   uiStatus?: {
     state: 'ok' | 'error';

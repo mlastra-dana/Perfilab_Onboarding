@@ -46,19 +46,25 @@ export function DocumentUploader({
     }
 
     if (docRecord.validation.status === 'valid') {
-      return { state: 'ok' as const, title: 'Validación completada', message: 'Documento aceptado.' };
+      return { state: 'ok' as const, title: 'Documento aceptado.', message: 'Documento aceptado.' };
     }
 
     if (docRecord.validation.status === 'error') {
       return {
         state: 'error' as const,
-        title: 'Error',
-        message: 'No pudimos validar este documento. Verifique que sea legible e intente nuevamente.'
+        title: 'Documento inválido',
+        message: 'Este archivo no corresponde al tipo de documento requerido.'
       };
     }
 
     return null;
   }, [docRecord.validation.uiStatus, docRecord.validation.status]);
+  const fileContainerStyles =
+    docRecord.validation.status === 'valid'
+      ? 'border-emerald-200 bg-emerald-50/40'
+      : docRecord.validation.status === 'error'
+        ? 'border-red-200 bg-red-50/40'
+        : 'border-slate-200 bg-white';
 
   async function handleFiles(fileList: FileList | null) {
     if (!fileList || fileList.length === 0) return;
@@ -137,7 +143,7 @@ export function DocumentUploader({
       </div>
 
       {docRecord.fileName ? (
-        <div className="rounded-xl border border-slate-200 p-3">
+        <div className={`rounded-xl border p-3 ${fileContainerStyles}`}>
           <FileAttachmentChip fileName={docRecord.fileName} status={docRecord.validation.status} onRemove={handleRemoveClick} />
           {docRecord.fileType?.includes('pdf') ? (
             previewFile ? (

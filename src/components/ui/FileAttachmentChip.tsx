@@ -4,7 +4,7 @@ import { ValidationStatus } from '../../app/types';
 const statusStyles: Record<ValidationStatus, string> = {
   pending: 'border-slate-200 bg-white',
   validating: 'border-orange-200 bg-orange-50/70',
-  valid: 'border-orange-200 bg-orange-50',
+  valid: 'border-emerald-200 bg-emerald-50',
   error: 'border-red-200 bg-red-50'
 };
 

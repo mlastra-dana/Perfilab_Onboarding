@@ -12,9 +12,9 @@ export function ValidationItem({
   if (status === 'pass') {
     return (
       <li className="flex items-start gap-2">
-        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-perfilabOrange" />
+        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
         <div>
-          <p className="text-perfilabOrange">{label}</p>
+          <p className="text-emerald-700">{label}</p>
           {detail ? <p className="text-perfilabGray">({detail})</p> : null}
         </div>
       </li>

@@ -1,11 +1,21 @@
 import { DocumentType, DocumentValidationResult } from '../../app/types';
-import { extractPdfText, getPdfInfo } from '../pdf/pdfUtils';
+import { extractTextWithOCR } from '../ocr/tesseract';
+import { extractPdfText, renderPdfPageToCanvas } from '../pdf/pdfUtils';
 import { validateBasicFile } from './fileValidators';
 
-const RIF_REGEX = /\b[VEJG]-\d{8}-\d\b/i;
-const REGISTRO_HINTS = [/acta/i, /asamblea/i, /registro mercantil/i, /compa[nñ][ií]a an[oó]nima/i, /\bc\.a\./i, /estatutos/i, /junta directiva/i];
-const CEDULA_WORD_REGEX = /c[eé]dula/i;
-const SIMPLE_CEDULA_NUMBER = /\b\d{6,9}\b/;
+type DemoSlotValidation = {
+  status: 'valid' | 'invalid';
+  message: string;
+  confidence: 'high' | 'low';
+};
+
+type StrongSignals = {
+  cedula: boolean;
+  rif: boolean;
+  mercantil: boolean;
+};
+
+const RIF_STRONG_REGEX = /\b[VEJG]-?\s*\d{7,9}\s*-?\s*\d\b/i;
 
 export async function validateDocumentFile(
   type: DocumentType,
@@ -33,114 +43,182 @@ export async function validateDocumentFile(
       });
     }
 
-    const isPdf = file.type.includes('pdf') || file.name.toLowerCase().endsWith('.pdf');
-
-    if (type === 'cedulaRepresentante' && file.type.startsWith('image/')) {
-      onProgress?.(45);
-      const dim = await getImageDimensions(file);
-      const resolutionOk = Math.max(dim.width, dim.height) >= 800;
-      const validInDemo = true;
-
-      checks.push({
-        label: 'Estructura de imagen',
-        passed: validInDemo,
-        details: `Resolución ${dim.width}x${dim.height}.`
-      });
-
-      onProgress?.(100);
-      return finalizeValidationResult(type, {
-        status: validInDemo ? 'valid' : 'error',
-        checks,
-        isIdDocument: validInDemo,
-        error: validInDemo ? undefined : 'No pudimos validar el documento.'
-      });
-    }
-
-    if (!isPdf) {
-      onProgress?.(100);
-      checks.push({
-        label: 'Tipo de documento',
-        passed: false,
-        details: 'Se requiere PDF para esta validación.'
-      });
-      return finalizeValidationResult(type, {
-        status: 'error',
-        checks,
-        error: 'No pudimos validar el documento.'
-      });
-    }
-
-    let pageCount = 0;
-    try {
-      const info = await getPdfInfo(file);
-      pageCount = info.pageCount;
-    } catch {
-      pageCount = 0;
-    }
-
-    onProgress?.(50);
-    const rawPdfText = await extractPdfText(file);
-    const pdfText = normalizeText(rawPdfText);
-
-    let valid = false;
-
-    if (type === 'rif') {
-      valid = RIF_REGEX.test(rawPdfText) || pdfText.includes('seniat');
-      const scannedPdfFallback = rawPdfText.trim().length === 0 && pageCount > 0;
-      if (!valid && scannedPdfFallback) {
-        valid = true;
-      }
-      checks.push({
-        label: 'Tipo de documento',
-        passed: valid,
-        details: valid ? 'RIF identificado.' : 'No se detectó estructura RIF/SENIAT.'
-      });
-    } else if (type === 'registroMercantil') {
-      valid = REGISTRO_HINTS.some((regex) => regex.test(rawPdfText));
-      const scannedPdfFallback = rawPdfText.trim().length === 0 && pageCount > 0;
-      if (!valid && scannedPdfFallback) {
-        valid = true;
-      }
-      checks.push({
-        label: 'Tipo de documento',
-        passed: valid,
-        details: valid ? 'Documento societario identificado.' : 'No se detectó estructura de acta/registro.'
-      });
-    } else {
-      const hasCedulaWord = CEDULA_WORD_REGEX.test(rawPdfText);
-      const hasNumber = SIMPLE_CEDULA_NUMBER.test(rawPdfText);
-      const scannedPdfFallback = pageCount > 0;
-      valid = (hasCedulaWord && hasNumber) || scannedPdfFallback;
-
-      checks.push({
-        label: 'Tipo de documento',
-        passed: valid,
-        details: valid ? 'Cédula identificada.' : 'No se detectó estructura de cédula.'
-      });
-    }
+    onProgress?.(55);
+    const demoResult =
+      type === 'rif'
+        ? await validateRif(file)
+        : type === 'registroMercantil'
+          ? await validateRegistroMercantilActa(file)
+          : await validateCedula(file);
+    checks.push({
+      label: 'Tipo de documento',
+      passed: demoResult.status === 'valid',
+      details: demoResult.message
+    });
 
     onProgress?.(100);
     return finalizeValidationResult(type, {
-      status: valid ? 'valid' : 'error',
+      status: demoResult.status === 'valid' ? 'valid' : 'error',
+      confidence: demoResult.confidence,
       checks,
-      isIdDocument: type === 'cedulaRepresentante' ? valid : undefined,
-      error: valid ? undefined : 'No pudimos validar el documento.'
+      isIdDocument: type === 'cedulaRepresentante' ? demoResult.status === 'valid' : undefined,
+      error: demoResult.status === 'invalid' ? demoResult.message : undefined
     });
   } catch {
     onProgress?.(100);
     checks.push({
-      label: 'Lectura del documento',
+      label: 'Tipo de documento',
       passed: false,
-      severity: 'error',
-      details: 'No pudimos validar el documento.'
+      details: `No corresponde a ${getDocTypeLabel(type)}.`
     });
 
     return finalizeValidationResult(type, {
       status: 'error',
+      confidence: 'low',
       checks,
-      error: 'No pudimos validar el documento.'
+      isIdDocument: false,
+      error: `Este archivo no corresponde a ${getDocTypeLabel(type)}.`
     });
   }
+}
+
+export async function validateRif(file: File): Promise<DemoSlotValidation> {
+  const text = await extractDocumentTextBestEffort(file);
+  const signals = detectStrongSignals(text);
+
+  if (signals.rif && !signals.cedula && !signals.mercantil) {
+    return {
+      status: 'valid',
+      confidence: 'high',
+      message: 'Documento aceptado.'
+    };
+  }
+
+  if (signals.cedula || signals.mercantil || (signals.rif && (signals.cedula || signals.mercantil))) {
+    return {
+      status: 'invalid',
+      confidence: 'high',
+      message: 'Este archivo no corresponde a RIF.'
+    };
+  }
+
+  return {
+    status: 'invalid',
+    confidence: 'low',
+    message: 'Este archivo no corresponde a RIF.'
+  };
+}
+
+export async function validateRegistroMercantilActa(file: File): Promise<DemoSlotValidation> {
+  const text = await extractDocumentTextBestEffort(file);
+  const signals = detectStrongSignals(text);
+
+  if (signals.mercantil && !signals.cedula && !signals.rif) {
+    return {
+      status: 'valid',
+      confidence: 'high',
+      message: 'Documento aceptado.'
+    };
+  }
+
+  if (signals.cedula || signals.rif || (signals.mercantil && (signals.cedula || signals.rif))) {
+    return {
+      status: 'invalid',
+      confidence: 'high',
+      message: 'Este archivo no corresponde a Registro Mercantil/Acta.'
+    };
+  }
+
+  return {
+    status: 'invalid',
+    confidence: 'low',
+    message: 'Este archivo no corresponde a Registro Mercantil/Acta.'
+  };
+}
+
+export async function validateCedula(file: File): Promise<DemoSlotValidation> {
+  const text = await extractDocumentTextBestEffort(file);
+  const signals = detectStrongSignals(text);
+
+  if (signals.cedula && !signals.rif && !signals.mercantil) {
+    return {
+      status: 'valid',
+      confidence: 'high',
+      message: 'Documento aceptado.'
+    };
+  }
+
+  if (signals.rif || signals.mercantil || (signals.cedula && (signals.rif || signals.mercantil))) {
+    return {
+      status: 'invalid',
+      confidence: 'high',
+      message: 'Este archivo no corresponde a Cédula.'
+    };
+  }
+
+  return {
+    status: 'invalid',
+    confidence: 'low',
+    message: 'Este archivo no corresponde a Cédula.'
+  };
+}
+
+async function extractDocumentTextBestEffort(file: File) {
+  const isPdf = file.type.includes('pdf') || file.name.toLowerCase().endsWith('.pdf');
+
+  if (isPdf) {
+    try {
+      const pdfText = (await extractPdfText(file, 2)).trim();
+      if (pdfText.length > 0) return pdfText;
+    } catch {
+      // Best effort: if text layer read fails, try OCR and keep flow permissive.
+    }
+
+    try {
+      const firstPageCanvas = await renderPdfPageToCanvas(file, 1);
+      return (await extractTextWithOCR(firstPageCanvas)).trim();
+    } catch {
+      return '';
+    }
+  }
+
+  if (file.type.startsWith('image/')) {
+    const imageUrl = URL.createObjectURL(file);
+    try {
+      return (await extractTextWithOCR(imageUrl)).trim();
+    } catch {
+      return '';
+    } finally {
+      URL.revokeObjectURL(imageUrl);
+    }
+  }
+
+  return '';
+}
+
+function detectStrongSignals(value: string): StrongSignals {
+  const text = normalizeText(value);
+  const hasCedulaStrong =
+    text.includes('cedula de identidad') ||
+    text.includes('republica bolivariana') ||
+    text.includes('venezolano') ||
+    (text.includes('apellidos') && text.includes('nombres'));
+  const hasRifStrong =
+    text.includes('seniat') || text.includes('registro de informacion fiscal') || RIF_STRONG_REGEX.test(value);
+  const hasMercantilStrong =
+    text.includes('registro mercantil') ||
+    text.includes('acta') ||
+    text.includes('asamblea') ||
+    text.includes('junta directiva') ||
+    text.includes('tomo') ||
+    text.includes('folio') ||
+    text.includes('notaria');
+
+  return {
+    cedula: hasCedulaStrong,
+    rif: hasRifStrong,
+    mercantil: hasMercantilStrong
+  };
 }
 
 function normalizeText(value: string) {
@@ -152,17 +230,8 @@ function normalizeText(value: string) {
 
 function getDocTypeLabel(type: DocumentType) {
   if (type === 'rif') return 'RIF';
-  if (type === 'registroMercantil') return 'Registro Mercantil';
+  if (type === 'registroMercantil') return 'Registro Mercantil/Acta';
   return 'Cédula';
-}
-
-function getImageDimensions(file: File): Promise<{ width: number; height: number }> {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => resolve({ width: image.width, height: image.height });
-    image.onerror = () => reject(new Error('No se pudo leer la imagen.'));
-    image.src = URL.createObjectURL(file);
-  });
 }
 
 function finalizeValidationResult(type: DocumentType, result: DocumentValidationResult): DocumentValidationResult {
@@ -171,21 +240,17 @@ function finalizeValidationResult(type: DocumentType, result: DocumentValidation
     return `[${status}] ${check.label}${check.details ? `: ${check.details}` : ''}`;
   });
 
-  const hasTypeMismatch = result.checks.some((check) => /tipo de documento/i.test(check.label) && !check.passed);
-
   const uiStatus =
     result.status === 'valid'
       ? {
           state: 'ok' as const,
-          title: 'Validación completada',
+          title: 'Documento aceptado.',
           message: 'Documento aceptado.'
         }
       : {
           state: 'error' as const,
-          title: 'Error',
-          message: hasTypeMismatch
-            ? `El documento no corresponde al tipo requerido (${getDocTypeLabel(type)}).`
-            : 'No pudimos validar el documento. Verifique que sea el archivo correcto e intente nuevamente.'
+          title: 'Documento inválido',
+          message: result.error ?? `Este archivo no corresponde a ${getDocTypeLabel(type)}.`
         };
 
   if (import.meta.env.DEV) {
