@@ -15,6 +15,8 @@ type StrongSignals = {
   mercantil: boolean;
 };
 
+type DetectedDocumentType = 'RIF' | 'MERCANTIL' | 'CEDULA' | 'UNKNOWN';
+
 const RIF_STRONG_REGEX = /\b[VEJG]-?\s*\d{7,9}\s*-?\s*\d\b/i;
 
 export async function validateDocumentFile(
@@ -84,9 +86,9 @@ export async function validateDocumentFile(
 
 export async function validateRif(file: File): Promise<DemoSlotValidation> {
   const text = await extractDocumentTextBestEffort(file);
-  const signals = detectStrongSignals(text);
+  const detected = detectDocumentType(text);
 
-  if (signals.rif && !signals.cedula && !signals.mercantil) {
+  if (detected === 'RIF') {
     return {
       status: 'valid',
       confidence: 'high',
@@ -94,26 +96,26 @@ export async function validateRif(file: File): Promise<DemoSlotValidation> {
     };
   }
 
-  if (signals.cedula || signals.mercantil || (signals.rif && (signals.cedula || signals.mercantil))) {
+  if (detected === 'UNKNOWN') {
     return {
       status: 'invalid',
-      confidence: 'high',
-      message: 'Este archivo no corresponde a RIF.'
+      confidence: 'low',
+      message: 'No se pudo confirmar que el archivo corresponda a un RIF.'
     };
   }
 
   return {
     status: 'invalid',
-    confidence: 'low',
+    confidence: 'high',
     message: 'Este archivo no corresponde a RIF.'
   };
 }
 
 export async function validateRegistroMercantilActa(file: File): Promise<DemoSlotValidation> {
   const text = await extractDocumentTextBestEffort(file);
-  const signals = detectStrongSignals(text);
+  const detected = detectDocumentType(text);
 
-  if (signals.mercantil && !signals.cedula && !signals.rif) {
+  if (detected === 'MERCANTIL') {
     return {
       status: 'valid',
       confidence: 'high',
@@ -121,26 +123,26 @@ export async function validateRegistroMercantilActa(file: File): Promise<DemoSlo
     };
   }
 
-  if (signals.cedula || signals.rif || (signals.mercantil && (signals.cedula || signals.rif))) {
+  if (detected === 'UNKNOWN') {
     return {
       status: 'invalid',
-      confidence: 'high',
-      message: 'Este archivo no corresponde a Registro Mercantil/Acta.'
+      confidence: 'low',
+      message: 'No se pudo confirmar que el archivo corresponda a Registro Mercantil/Acta.'
     };
   }
 
   return {
     status: 'invalid',
-    confidence: 'low',
+    confidence: 'high',
     message: 'Este archivo no corresponde a Registro Mercantil/Acta.'
   };
 }
 
 export async function validateCedula(file: File): Promise<DemoSlotValidation> {
   const text = await extractDocumentTextBestEffort(file);
-  const signals = detectStrongSignals(text);
+  const detected = detectDocumentType(text);
 
-  if (signals.cedula && !signals.rif && !signals.mercantil) {
+  if (detected === 'CEDULA') {
     return {
       status: 'valid',
       confidence: 'high',
@@ -148,17 +150,17 @@ export async function validateCedula(file: File): Promise<DemoSlotValidation> {
     };
   }
 
-  if (signals.rif || signals.mercantil || (signals.cedula && (signals.rif || signals.mercantil))) {
+  if (detected === 'UNKNOWN') {
     return {
       status: 'invalid',
-      confidence: 'high',
-      message: 'Este archivo no corresponde a Cédula.'
+      confidence: 'low',
+      message: 'No se pudo confirmar que el archivo corresponda a una cédula.'
     };
   }
 
   return {
     status: 'invalid',
-    confidence: 'low',
+    confidence: 'high',
     message: 'Este archivo no corresponde a Cédula.'
   };
 }
@@ -219,6 +221,17 @@ function detectStrongSignals(value: string): StrongSignals {
     rif: hasRifStrong,
     mercantil: hasMercantilStrong
   };
+}
+
+function detectDocumentType(value: string): DetectedDocumentType {
+  const signals = detectStrongSignals(value);
+  const matches = [signals.rif, signals.mercantil, signals.cedula].filter(Boolean).length;
+
+  if (matches !== 1) return 'UNKNOWN';
+  if (signals.rif) return 'RIF';
+  if (signals.mercantil) return 'MERCANTIL';
+  if (signals.cedula) return 'CEDULA';
+  return 'UNKNOWN';
 }
 
 function normalizeText(value: string) {
