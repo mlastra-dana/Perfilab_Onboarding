@@ -206,7 +206,7 @@ export function DocumentsPage({ companyId }: { companyId: string }) {
           <div className="hidden md:block" aria-hidden="true" />
           <div className="hidden lg:block" aria-hidden="true" />
           <DocumentUploader
-            title="Cédula del Segundo representante (Opcional)"
+            title="Cédula del Segundo representante (Requerido si se agrega)"
             sectionTitle="Segundo representante"
             sectionAction={
               <Button type="button" variant="ghost" onClick={handleDeleteRepresentative2}>

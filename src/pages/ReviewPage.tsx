@@ -12,6 +12,8 @@ export function ReviewPage({ companyId }: { companyId: string }) {
   const { state, canSubmit, setSubmission } = useOnboarding();
   const [errorToast, setErrorToast] = useState<string | null>(null);
   const navigate = useNavigate();
+  const representative2 = state.representatives.find((rep) => rep.id === 2);
+  const requiredDocumentsCount = representative2?.enabled ? 4 : 3;
 
   async function submit() {
     setErrorToast(null);
@@ -97,10 +99,18 @@ export function ReviewPage({ companyId }: { companyId: string }) {
               <div>
                 <p className="font-medium text-slate-900">Cédula del Representante {rep.id}</p>
                 <p className="text-xs text-slate-500">
-                  {rep.enabled ? rep.document.fileName ?? 'Sin archivo' : 'No aplica'}
+                  {rep.id === 2 && !rep.enabled ? 'No aplica' : rep.document.fileName ?? 'Pendiente'}
                 </p>
               </div>
-              <StatusBadge status={rep.enabled ? rep.document.validation.status : 'valid'} />
+              <StatusBadge
+                status={
+                  rep.id === 2 && !rep.enabled
+                    ? 'na'
+                    : !rep.document.fileName
+                      ? 'pending'
+                      : rep.document.validation.status
+                }
+              />
             </li>
           ))}
         </ul>
@@ -128,7 +138,7 @@ export function ReviewPage({ companyId }: { companyId: string }) {
       {!canSubmit ? (
         <Toast
           type="error"
-          message="No puede enviar todavía: verifique que los 3 documentos estén válidos y el Excel esté 100% en verde."
+          message={`No puede enviar todavía: verifique que los ${requiredDocumentsCount} documentos requeridos estén válidos y el Excel esté 100% en verde.`}
         />
       ) : null}
     </div>

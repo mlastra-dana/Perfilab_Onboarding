@@ -16,9 +16,14 @@ export function SuccessPage({ companyId }: { companyId: string }) {
   const submittedAt = state.submission.submittedAt ? new Date(state.submission.submittedAt) : new Date();
   const requestCode = shortRequestCode(state.submission.registrationId);
   const representative1 = state.representatives[0];
-  const validDocsCount =
-    Object.values(state.documents).filter((doc) => doc.validation.status === 'valid').length +
-    (representative1.document.validation.status === 'valid' ? 1 : 0);
+  const representative2 = state.representatives[1];
+  const requiredDocs = [
+    ...Object.values(state.documents),
+    representative1.document,
+    ...(representative2.enabled ? [representative2.document] : [])
+  ];
+  const validDocsCount = requiredDocs.filter((doc) => doc.validation.status === 'valid').length;
+  const requiredDocsCount = requiredDocs.length;
   const excelReceived = state.excel.totalRows > 0;
 
   async function handleCopyCode() {
@@ -61,7 +66,7 @@ export function SuccessPage({ companyId }: { companyId: string }) {
             <span className="font-medium text-perfilabDark">Empresa:</span> {state.tenant.name}
           </p>
           <p>
-            <span className="font-medium text-perfilabDark">Documentos recibidos:</span> {validDocsCount}/3
+            <span className="font-medium text-perfilabDark">Documentos recibidos:</span> {validDocsCount}/{requiredDocsCount}
           </p>
           <p>
             <span className="font-medium text-perfilabDark">Archivo de datos:</span> {excelReceived ? 'Recibido' : 'No cargado'}
